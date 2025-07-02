@@ -7,6 +7,7 @@ from openai import OpenAI
 from typing import Dict, Any, Tuple, List
 import time
 import streamlit as st
+import requests
 
 # ---------- LOGGING ----------
 logging.basicConfig(
@@ -27,32 +28,41 @@ def yahoo_friendly(tkr: str) -> str:
     """Converts a ticker to a yfinance-compatible format."""
     return tkr.replace("/", "-").replace(".", "-")
 
+# ---------- SINGLE TICKER DATA FETCHING ----------
+@st.cache_data(ttl=900)  # Cache for 15 minutes
+def get_single_stock_data(ticker: str, retry: bool = True) -> Dict[str, Any]:
+    """Fetch and cache data for a single ticker with retry on 429 errors."""
+    yf_ticker = yahoo_friendly(ticker)
+    ticker_obj = yf.Ticker(yf_ticker)
+    try:
+        info = ticker_obj.info
+        if not info or 'symbol' not in info:
+            raise ValueError("Info is empty or invalid")
+        return {
+            'company_name': info.get('longName') or info.get('shortName', ticker),
+            'current_price': info.get('currentPrice') or ticker_obj.fast_info.get('lastPrice')
+        }
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 429 and retry:
+            logging.warning(f"429 Too Many Requests for {ticker}. Retrying in 10 seconds...")
+            time.sleep(10)
+            return get_single_stock_data(ticker, retry=False)  # Retry once
+        else:
+            logging.error(f"HTTP error for {ticker}: {e}")
+            return {'company_name': ticker, 'current_price': None}
+    except Exception as e:
+        logging.error(f"Could not fetch data for {ticker}: {e}")
+        return {'company_name': ticker, 'current_price': None}
+
 # ---------- BATCH DATA FETCHING ----------
-@st.cache_data(ttl=900)  # Cache the result for 15 minutes
 def get_batch_stock_data(tickers: Tuple[str, ...]) -> Dict[str, Dict[str, Any]]:
-    """
-    Fetches basic info and current price for a list of tickers in a single batch call.
-    """
+    """Fetch data for multiple tickers using cached single-ticker data."""
     if not tickers:
         return {}
-    
-    ticker_objects = yf.Tickers(' '.join(tickers))
     batch_data = {}
-
     for ticker in tickers:
-        try:
-            info = ticker_objects.tickers[ticker].info
-            if not info or 'symbol' not in info:
-                raise ValueError("Info dictionary is empty or invalid.")
-            
-            batch_data[ticker] = {
-                'company_name': info.get('longName') or info.get('shortName', ticker),
-                'current_price': info.get('currentPrice') or ticker_objects.tickers[ticker].fast_info.get('lastPrice')
-            }
-        except Exception as e:
-            logging.error(f"Could not fetch batch data for {ticker}: {e}")
-            batch_data[ticker] = {'company_name': ticker, 'current_price': None}
-        time.sleep(0.05)
+        batch_data[ticker] = get_single_stock_data(ticker)
+        time.sleep(0.1)  # Small delay to further reduce rate pressure
     return batch_data
 
 @st.cache_data(ttl=900)
@@ -123,7 +133,6 @@ def get_batch_price_performance(tickers: Tuple[str, ...], start_date: pd.Timesta
             performance_data[ticker] = {"error": str(e)}
             
     return performance_data
-
 
 def build_prompt_for_holding(price_block: dict, long_name: str) -> str:
     period_desc = price_block.get('period_name', 'recent performance')
