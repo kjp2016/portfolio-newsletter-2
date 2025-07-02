@@ -9,6 +9,7 @@ from typing import Dict, List, Tuple, Optional, Any
 import re
 from io import BytesIO
 
+
 # Document processing imports
 import PyPDF2
 import docx
@@ -18,6 +19,8 @@ import yfinance as yf
 
 # Import company_name from portfolio_analysis
 from portfolio_analysis import company_name
+from portfolio_analysis import get_last_price
+
 
 # Import Google Sheets functions
 from google_sheets_storage import (
@@ -335,8 +338,7 @@ def main():
             total_value = 0
             for ticker, shares in holdings.items():
                 try:
-                    stock = yf.Ticker(ticker)
-                    current_price = stock.info.get('currentPrice', 0)
+                    current_price = get_last_price(ticker) or 0
                     value = current_price * shares
                     total_value += value
                     portfolio_data.append({

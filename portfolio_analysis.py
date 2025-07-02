@@ -5,6 +5,9 @@ import pandas as pd
 import yfinance as yf
 from openai import OpenAI
 from typing import Dict, Any
+import time
+import streamlit as st
+from functools import lru_cache
 
 # ---------- LOGGING ----------
 logging.basicConfig(
@@ -20,6 +23,21 @@ TICKERS_STANDALONE_TEST = [
     "MSFT", "AAPL"
 ]
 # -----------------------------
+
+# ---------- Price helper with caching & back-off ----------
+@lru_cache(maxsize=128)
+def _raw_price(tkr):
+    yf_tkr = yahoo_friendly(tkr)
+    return yf.Ticker(yf_tkr).fast_info["lastPrice"]
+
+@st.cache_data(ttl=900)            # cache 15 min across reruns
+def get_last_price(tkr):
+    for attempt in range(3):       # back-off: 0 s, 1 s, 2 s
+        try:
+            return float(_raw_price(tkr))
+        except Exception:
+            time.sleep(2 ** attempt)
+    return None   # give up after 3 tries
 
 def yahoo_friendly(tkr: str) -> str:
     return tkr.replace("/", "-").replace(".", "-")
