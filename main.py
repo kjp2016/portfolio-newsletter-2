@@ -11,173 +11,195 @@ import pandas as pd
 import streamlit as st
 from openai import OpenAI
 
-# ---------- Local Modules ----------
-from market_recap import generate_market_recap_with_search
+# --- Local Modules ---
+# These imports assume portfolio_analysis.py and market_recap.py are in the same directory
 from portfolio_analysis import (
     get_batch_price_performance,
     get_batch_stock_data,
     gpt_paragraph_for_holding
 )
+from market_recap import generate_market_recap_with_search
 
-# ---------- Logging ----------
+# --- Logging Configuration ---
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-7s %(message)s",
     datefmt="%H:%M:%S"
 )
 
-# ---------- OpenAI Configuration ----------
+# --- Configurations ---
+# Ensure secrets are loaded for all environments
+try:
+    OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
+    GMAIL_APP_PASSWORD = st.secrets["GMAIL_APP_PASSWORD"]
+except (AttributeError, KeyError):
+    # Fallback for local execution outside of Streamlit
+    from dotenv import load_dotenv
+    load_dotenv()
+    OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+    GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
+
+client = OpenAI(api_key=OPENAI_API_KEY)
 OPENAI_MODEL = "gpt-4o-mini"
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-
-# ---------- Config ----------
+SENDER_EMAIL = "keanejpalmer@gmail.com"  # Your sending email address
 TEMPLATE_DIR = "./templates"
-HTML_TEMPLATE = "weekly_pulse.html"
-PLAINTEXT_TEMPLATE = "weekly_pulse.txt"
-SENDER = "keanejpalmer@gmail.com"
-RECIPIENTS = ["keanejpalmer@gmail.com"]
-SUBJECT = f"Weekly Market Pulse – {datetime.utcnow():%b %d, %Y}"
 
-TICKERS = ["AMZN", "AVGO", "BMY", "NVDA", "MSFT", "AAPL"]
 
-def get_overall_portfolio_performance(portfolio_tickers: Tuple[str, ...], period: str, holdings: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
-    """Calculate overall portfolio performance using batch data."""
+def get_overall_portfolio_performance(
+    portfolio_tickers: Tuple[str, ...],
+    period: str,
+    holdings: Optional[Dict[str, float]] = None
+) -> Dict[str, Any]:
+    """Calculates overall portfolio performance using batch data."""
     today = pd.Timestamp.utcnow()
     start_date = today - timedelta(days=7) if period == "weekly" else today.replace(month=1, day=1).normalize()
 
-    # Fetch all performance data in one batch
-    all_perf_data = get_batch_price_performance(portfolio_tickers, start_date, today)
-    
+    all_perf_data = get_batch_price_performance(portfolio_tickers, start_date, today, period_name=period)
     valid_performances = [p for p in all_perf_data.values() if 'error' not in p]
-    if not valid_performances:
-        return {"overall_change_pct": 0.0, "major_movers": [], "error": "No performance data."}
 
-    # Calculate weighted performance if holdings are provided
+    if not valid_performances:
+        return {"overall_change_pct": 0.0, "major_movers": []}
+
+    # Use weighted average if holdings are provided, otherwise use a simple average
     if holdings:
         total_value_start, total_value_end = 0, 0
         for perf in valid_performances:
             shares = holdings.get(perf['ticker'], 0)
             total_value_start += perf['first_close'] * shares
             total_value_end += perf['last_close'] * shares
-        
         overall_change_pct = ((total_value_end - total_value_start) / total_value_start) * 100 if total_value_start > 0 else 0.0
     else:
-        # Simple average if no holdings
         total_pct_change = sum(p['pct_change'] for p in valid_performances)
         overall_change_pct = total_pct_change / len(valid_performances) if valid_performances else 0.0
 
-    # Determine major movers
-    major_movers_details = []
+    # Determine major movers based on weekly performance
+    major_movers = []
     if period == "weekly":
         sorted_by_impact = sorted(valid_performances, key=lambda x: abs(x.get('pct_change', 0.0)), reverse=True)
-        for mover in sorted_by_impact[:2]: # Get top 2 movers by absolute impact
-             major_movers_details.append(f"{mover['ticker']} ({mover['pct_change']:.2f}%)")
-    
-    return {"overall_change_pct": overall_change_pct, "major_movers": major_movers_details}
+        for mover in sorted_by_impact[:2]:
+            major_movers.append(f"{mover['ticker']} ({mover['pct_change']:.2f}%)")
+
+    return {"overall_change_pct": overall_change_pct, "major_movers": major_movers}
+
 
 def generate_holdings_blocks(portfolio_tickers: Tuple[str, ...]) -> List[dict]:
-    """Generate holdings analysis blocks using batch data."""
+    """Generates analysis paragraphs for each holding using batch data."""
     today = pd.Timestamp.utcnow()
     start_mtd = today.replace(day=1).normalize()
 
-    # BATCH 1: Get all company names and current data
+    # Fetch all data in batches first
     company_data = get_batch_stock_data(portfolio_tickers)
-    
-    # BATCH 2: Get all month-to-date performance data
     price_data_mtd = get_batch_price_performance(portfolio_tickers, start_mtd, today, period_name="month-to-date")
 
     holdings_blocks = []
     for ticker in portfolio_tickers:
         try:
             price_data = price_data_mtd.get(ticker)
-            company_name = company_data.get(ticker, {}).get('company_name', ticker)
-            
+            name = company_data.get(ticker, {}).get('company_name', ticker)
+
             if not price_data or 'error' in price_data:
-                raise ValueError(f"No valid price data for {ticker}")
+                raise ValueError(f"Missing or invalid price data for {ticker}")
 
-            para = gpt_paragraph_for_holding(price_data, company_name, client, OPENAI_MODEL)
+            para = gpt_paragraph_for_holding(price_data, name, client, OPENAI_MODEL)
             holdings_blocks.append({"ticker": ticker, "para": para})
-            logging.info(f"Generated analysis for {ticker}.")
-
         except Exception as e:
-            logging.warning(f"[{ticker}] skipped for holdings block: {e}")
+            logging.warning(f"Skipping holdings block for {ticker}: {e}")
             holdings_blocks.append({"ticker": ticker, "para": f"⚠️ Unable to generate detailed analysis for {ticker}."})
-            
+
     return holdings_blocks
 
-def render_email(intro_summary_html: str, intro_summary_text: str, market_md: str, holdings: List[dict]) -> tuple[str, str]:
-    """Render email templates."""
-    market_html = markdown2.markdown(market_md)
-    enriched_holdings = [{"ticker": h["ticker"], "para_html": markdown2.markdown(h["para"])} for h in holdings]
-    
-    env = Environment(loader=FileSystemLoader(TEMPLATE_DIR), autoescape=select_autoescape(["html", "xml"]))
-    current_date_str = datetime.utcnow().strftime("%B %d, %Y")
-    
+
+def render_email(subject: str, intro_summary_html: str, intro_summary_text: str, market_md: str, holdings: List[dict]) -> Tuple[str, str]:
+    """Renders the HTML and plain text versions of the email."""
+    env = Environment(loader=FileSystemLoader(TEMPLATE_DIR), autoescape=select_autoescape(["html"]))
     template_vars = {
-        "subject": SUBJECT, "date": current_date_str,
-        "intro_summary_html": intro_summary_html, "intro_summary_text": intro_summary_text,
-        "market_block_html": market_html, "market_block": market_md,
-        "holdings": enriched_holdings
+        "subject": subject,
+        "date": datetime.utcnow().strftime("%B %d, %Y"),
+        "intro_summary_html": intro_summary_html,
+        "market_block_html": markdown2.markdown(market_md),
+        "holdings": [{"ticker": h["ticker"], "para_html": markdown2.markdown(h["para"])} for h in holdings]
     }
-    
-    html = env.get_template(HTML_TEMPLATE).render(template_vars)
-    text = env.get_template(PLAINTEXT_TEMPLATE).render(template_vars)
+    html = env.get_template("weekly_pulse.html").render(template_vars)
+    text = f"{subject}\n\n{intro_summary_text}\n\nMarket Recap\n{market_md}"
     return html, text
 
-def send_gmail(html_body: str, txt_body: str, recipients: Optional[List[str]] = None):
-    """Send email via Gmail."""
+
+def send_gmail(subject: str, html_body: str, txt_body: str, recipients: List[str]):
+    """Connects to Gmail and sends the email."""
+    if not GMAIL_APP_PASSWORD:
+        logging.error("Gmail App Password not found. Cannot send email.")
+        return
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = SENDER_EMAIL
+    msg["To"] = ", ".join(recipients)
+    msg.attach(MIMEText(txt_body, "plain"))
+    msg.attach(MIMEText(html_body, "html"))
+
     try:
-        to_addresses = recipients or RECIPIENTS
-        if not st.secrets.get("GMAIL_APP_PASSWORD"):
-            logging.error("GMAIL_APP_PASSWORD not set. Email not sent.")
-            return
-
-        msg = MIMEMultipart("alternative")
-        msg["Subject"], msg["From"], msg["To"] = SUBJECT, SENDER, ", ".join(to_addresses)
-        msg.attach(MIMEText(txt_body, "plain"))
-        msg.attach(MIMEText(html_body, "html"))
-
         with smtplib.SMTP("smtp.gmail.com", 587) as server:
             server.starttls()
-            server.login(SENDER, st.secrets["GMAIL_APP_PASSWORD"])
-            server.sendmail(SENDER, to_addresses, msg.as_string())
-            logging.info(f"Email sent successfully to {', '.join(to_addresses)}.")
+            server.login(SENDER_EMAIL, GMAIL_APP_PASSWORD)
+            server.sendmail(SENDER_EMAIL, recipients, msg.as_string())
+            logging.info(f"Email sent successfully to {', '.join(recipients)}.")
     except Exception as e:
-        logging.error(f"Failed to send email: {e}")
+        logging.error(f"Failed to send email via Gmail: {e}")
 
-def main():
-    """Standalone newsletter generation."""
-    logging.info("Starting enhanced weekly newsletter generation...")
-    tickers_tuple = tuple(TICKERS)
-    
-    weekly_perf = get_overall_portfolio_performance(tickers_tuple, "weekly")
-    ytd_perf = get_overall_portfolio_performance(tickers_tuple, "ytd")
+# --- Main Function to be Called by app.py ---
+def generate_newsletter_for_user(email: str, holdings: Dict[str, float]) -> bool:
+    """
+    This is the main orchestrator function. It generates and sends a single newsletter.
+    """
+    if not holdings:
+        logging.warning(f"No holdings found for {email}. Skipping newsletter.")
+        return False
+
+    tickers_tuple = tuple(holdings.keys())
+    subject = f"Your Weekly Portfolio Pulse – {datetime.utcnow():%b %d, %Y}"
+
+    # --- 1. Get Performance Stats ---
+    weekly_perf = get_overall_portfolio_performance(tickers_tuple, "weekly", holdings)
+    ytd_perf = get_overall_portfolio_performance(tickers_tuple, "ytd", holdings)
     
     overall_weekly_change_pct = weekly_perf.get('overall_change_pct', 0.0)
     major_movers = weekly_perf.get('major_movers', [])
     overall_ytd_change_pct = ytd_perf.get('overall_change_pct', 0.0)
-    
-    market_block_md = generate_market_recap_with_search(TICKERS)
-    
+
+    # --- 2. Generate AI Content ---
+    market_block_md = generate_market_recap_with_search(list(tickers_tuple))
+    holdings_blocks = generate_holdings_blocks(tickers_tuple)
+
+    # --- 3. Build Email Text ---
     weekly_direction = "increased" if overall_weekly_change_pct >= 0 else "decreased"
     ytd_direction = "up" if overall_ytd_change_pct >= 0 else "down"
     major_movers_str = "movements in positions like " + " and ".join(major_movers) if major_movers else "key positions"
-    
+
     intro_summary_text = (
         f"This week your portfolio {weekly_direction} by {abs(overall_weekly_change_pct):.2f}%.\n"
         f"This was influenced by {major_movers_str}.\n"
         f"The broader market conditions and specific news affecting your holdings are detailed in the Market Recap below.\n"
-        f"Year to date, your portfolio is {ytd_direction} {abs(overall_ytd_change_pct):.2f}%.\n\n"
-        f"For more details about your specific holdings or questions on what to do next in your portfolio, "
-        f"please feel free to contact an advisor here."
+        f"Year to date, your portfolio is {ytd_direction} {abs(overall_ytd_change_pct):.2f}%."
     )
     intro_summary_html = markdown2.markdown(intro_summary_text.replace('\n', '<br>'))
-    
-    holdings_blocks = generate_holdings_blocks(tickers_tuple)
-    html_body, txt_body = render_email(intro_summary_html, intro_summary_text, market_block_md, holdings_blocks)
-    
-    send_gmail(html_body, txt_body)
-    logging.info("Newsletter generation complete.")
 
+    # --- 4. Render and Send Email ---
+    html_body, txt_body = render_email(subject, intro_summary_html, intro_summary_text, market_block_md, holdings_blocks)
+    send_gmail(subject, html_body, txt_body, recipients=[email])
+    
+    return True
+
+
+# This block allows the script to be run directly for testing purposes
 if __name__ == "__main__":
-    main()
+    logging.info("Running standalone test for main.py...")
+    # Example test case
+    test_holdings = {"AAPL": 10, "MSFT": 20, "GOOGL": 5}
+    test_email = "keanejpalmer@gmail.com"  # A test recipient
+    
+    if not all([OPENAI_API_KEY, GMAIL_APP_PASSWORD]):
+         logging.error("Missing API keys (OPENAI_API_KEY, GMAIL_APP_PASSWORD). Aborting test.")
+    else:
+        generate_newsletter_for_user(test_email, test_holdings)
+
+    logging.info("Standalone test finished.")
