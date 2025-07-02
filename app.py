@@ -1,4 +1,3 @@
-#app.py
 import streamlit as st
 import pandas as pd
 import json
@@ -17,9 +16,8 @@ import openpyxl
 from openai import OpenAI
 import yfinance as yf
 
-# Import company_name from portfolio_analysis
-from portfolio_analysis import company_name
-from portfolio_analysis import get_last_price
+# --- ENHANCEMENT: Replaced individual imports with the batch function ---
+from portfolio_analysis import get_batch_stock_data
 
 
 # Import Google Sheets functions
@@ -87,7 +85,7 @@ def extract_data_from_excel(file_bytes: bytes) -> pd.DataFrame:
         return pd.DataFrame()
 
 def extract_portfolio_with_ai(content: str, file_type: str) -> Dict[str, float]:
-    """Use GPT to extract portfolio holdings from document content."""
+    """Use GPT to extract portfolio holdings and validate tickers in a batch."""
     prompt = f"""
     Analyze the following {file_type} content and extract stock portfolio information.
     
@@ -127,25 +125,31 @@ def extract_portfolio_with_ai(content: str, file_type: str) -> Dict[str, float]:
             response_format={"type": "json_object"}
         )
         result = json.loads(response.choices[0].message.content)
-        holdings = {}
-        for item in result.get("holdings", []):
-            ticker = item.get("ticker", "").upper()
-            shares = float(item.get("shares", 100))
-            if ticker and validate_ticker(ticker):
-                holdings[ticker] = shares
-        return holdings
+        
+        # --- ENHANCEMENT: Validate all found tickers in a single batch call ---
+        potential_holdings = {
+            item.get("ticker", "").upper(): float(item.get("shares", 100))
+            for item in result.get("holdings", []) if item.get("ticker")
+        }
+        
+        if not potential_holdings:
+            return {}
+
+        valid_tickers_data = get_batch_stock_data(tuple(potential_holdings.keys()))
+        
+        final_holdings = {}
+        for ticker, shares in potential_holdings.items():
+            # A ticker is valid if the batch call returned data for it
+            if ticker in valid_tickers_data and valid_tickers_data[ticker].get('current_price') is not None:
+                final_holdings[ticker] = shares
+                
+        return final_holdings
+        
     except Exception as e:
         logging.error(f"Error extracting portfolio with AI: {e}")
         return {}
 
-def validate_ticker(ticker: str) -> bool:
-    """Validate if a ticker symbol exists."""
-    try:
-        stock = yf.Ticker(ticker)
-        info = stock.info
-        return 'symbol' in info or 'shortName' in info
-    except:
-        return False
+# --- ENHANCEMENT: Removed the old individual validate_ticker function ---
 
 # ---------- Newsletter Generation ----------
 def generate_newsletter_for_user(email: str, holdings: Dict[str, float]) -> bool:
@@ -315,7 +319,9 @@ def main():
                     elif file_type == 'csv':
                         df = pd.read_csv(BytesIO(file_bytes))
                         content = df.to_string()
+                    
                     holdings = extract_portfolio_with_ai(content, file_type)
+                    
                     if holdings:
                         if save_user_portfolio_to_sheets(email, holdings):
                             st.success("✅ Portfolio saved successfully!")
@@ -334,31 +340,49 @@ def main():
             email = st.session_state.get('current_email', '')
             st.markdown('<div class="portfolio-display">', unsafe_allow_html=True)
             st.subheader(f"Portfolio for: {email}")
+            
+            # --- ENHANCEMENT: Fetch all data in one batch call ---
             portfolio_data = []
             total_value = 0
-            for ticker, shares in holdings.items():
-                try:
-                    current_price = get_last_price(ticker) or 0
-                    value = current_price * shares
-                    total_value += value
-                    portfolio_data.append({
-                        'Ticker': ticker,
-                        'Company': company_name(ticker),
-                        'Shares': shares,
-                        'Current Price': f"${current_price:.2f}",
-                        'Value': f"${value:,.2f}"
-                    })
-                except:
-                    portfolio_data.append({
-                        'Ticker': ticker,
-                        'Company': ticker,
-                        'Shares': shares,
-                        'Current Price': "N/A",
-                        'Value': "N/A"
-                    })
+            
+            # 1. Get all tickers from the portfolio
+            ticker_list = tuple(holdings.keys())
+            
+            if ticker_list:
+                # 2. Call the batch function ONCE to get all data
+                portfolio_details = get_batch_stock_data(ticker_list)
+
+                # 3. Loop through holdings and use the pre-fetched data
+                for ticker, shares in holdings.items():
+                    details = portfolio_details.get(ticker)
+                    if details:
+                        current_price = details.get('current_price', 0) or 0
+                        company_name = details.get('company_name', ticker)
+                        value = current_price * shares
+                        total_value += value
+                        
+                        portfolio_data.append({
+                            'Ticker': ticker,
+                            'Company': company_name,
+                            'Shares': shares,
+                            'Current Price': f"${current_price:.2f}",
+                            'Value': f"${value:,.2f}"
+                        })
+                    else:
+                        # Handle case where a ticker might fail in the batch call
+                        portfolio_data.append({
+                            'Ticker': ticker,
+                            'Company': ticker,
+                            'Shares': shares,
+                            'Current Price': "N/A",
+                            'Value': "N/A"
+                        })
+            # --- END OF ENHANCEMENT ---
+            
             df = pd.DataFrame(portfolio_data)
             st.dataframe(df, use_container_width=True)
             st.metric("Total Portfolio Value", f"${total_value:,.2f}")
+            
             if st.button("📬 Send Test Newsletter Now"):
                 with st.spinner("Generating and sending your newsletter..."):
                     if generate_newsletter_for_user(email, holdings):

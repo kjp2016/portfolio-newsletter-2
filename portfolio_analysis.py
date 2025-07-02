@@ -4,7 +4,7 @@ import os
 import pandas as pd
 import yfinance as yf
 from openai import OpenAI
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 import time
 import streamlit as st
 from functools import lru_cache
@@ -24,35 +24,51 @@ TICKERS_STANDALONE_TEST = [
 ]
 # -----------------------------
 
-# ---------- Price helper with caching & back-off ----------
-@lru_cache(maxsize=128)
-def _raw_price(tkr):
-    yf_tkr = yahoo_friendly(tkr)
-    return yf.Ticker(yf_tkr).fast_info["lastPrice"]
-
-@st.cache_data(ttl=900)            # cache 15 min across reruns
-def get_last_price(tkr):
-    for attempt in range(3):       # back-off: 0 s, 1 s, 2 s
-        try:
-            return float(_raw_price(tkr))
-        except Exception:
-            time.sleep(2 ** attempt)
-    return None   # give up after 3 tries
-
 def yahoo_friendly(tkr: str) -> str:
+    """Converts a ticker to a yfinance-compatible format."""
     return tkr.replace("/", "-").replace(".", "-")
 
-def company_name(ticker: str) -> str:
-    try:
-        info = yf.Ticker(yahoo_friendly(ticker)).info or {}
-        return info.get("longName") or info.get("shortName") or ticker
-    except Exception as e:
-        logging.warning(f"Could not fetch company name for {ticker}: {e}")
-        return ticker
+# ---------- ENHANCEMENT: BATCH DATA FETCHING ----------
+@st.cache_data(ttl=900)  # Cache the result for 15 minutes
+def get_batch_stock_data(tickers: Tuple[str, ...]) -> Dict[str, Dict[str, Any]]:
+    """
+    Fetches basic info and price for a list of tickers in a single batch call
+    to prevent rate-limiting errors.
+    """
+    if not tickers:
+        return {}
+
+    # Use yf.Tickers (plural) to send a single request for all tickers
+    ticker_objects = yf.Tickers(' '.join(tickers))
+
+    batch_data = {}
+    for ticker in tickers:
+        try:
+            # Accessing .info here uses the data fetched in the single batch call
+            info = ticker_objects.tickers[ticker].info
+
+            if not info or 'symbol' not in info:
+                 raise ValueError("Info dictionary is empty or invalid.")
+
+            batch_data[ticker] = {
+                'company_name': info.get('longName') or info.get('shortName', ticker),
+                'current_price': info.get('currentPrice') or ticker_objects.tickers[ticker].fast_info.get('lastPrice')
+            }
+        except Exception as e:
+            # If a single ticker fails, log it and continue
+            logging.error(f"Could not fetch batch data for {ticker}: {e}")
+            batch_data[ticker] = {
+                'company_name': ticker,
+                'current_price': None
+            }
+        # Optional: Add a tiny delay to be extra safe with the API
+        time.sleep(0.05)
+
+    return batch_data
 
 def get_price_performance(ticker: str, start_date: pd.Timestamp, end_date: pd.Timestamp, period_name: str = "period") -> Dict[str, Any]:
     yf_ticker = yahoo_friendly(ticker)
-    
+
     df = yf.download(
         yf_ticker,
         start=start_date - pd.Timedelta(days=7),
@@ -89,7 +105,7 @@ def get_price_performance(ticker: str, start_date: pd.Timestamp, end_date: pd.Ti
     else:
         last_row = df_before_end.iloc[-1]
     actual_end_date_ts = last_row.name
-    
+
     first_close_raw = first_row["Close"]
     last_close_raw = last_row["Close"]
 
@@ -107,7 +123,7 @@ def get_price_performance(ticker: str, start_date: pd.Timestamp, end_date: pd.Ti
         last_close = last_close_raw.item()
     else:
         last_close = last_close_raw
-    
+
     # Convert to float for consistent type handling, especially before pd.isna
     try:
         first_close = float(first_close)
@@ -137,7 +153,7 @@ def get_price_performance(ticker: str, start_date: pd.Timestamp, end_date: pd.Ti
 def build_prompt_for_holding(price_block: dict, long_name: str) -> str:
     period_desc = price_block.get('period_name', 'recent performance')
     direction = "up" if price_block['pct_change'] >= 0 else "down"
-    
+
     return (
         f"Create a bullet-point analysis for a client newsletter about {long_name} ({price_block['ticker']}).\n"
         f"The stock is {direction} ${abs(price_block['abs_change'])} ({price_block['pct_change']}%) for the {period_desc}.\n\n"
@@ -159,7 +175,7 @@ def gpt_paragraph_for_holding(price_block: dict, long_name: str, openai_client: 
     try:
         prompt = build_prompt_for_holding(price_block, long_name)
         logging.info(f"[GPT - {price_block['ticker']}] Generating holding analysis. Prompt: '{prompt[:150]}...'")
-        
+
         response = openai_client.responses.create(
             model=model_name,
             tools=[{"type": "web_search_preview"}],
@@ -185,13 +201,20 @@ def main(): # For standalone testing of portfolio_analysis.py
     if not test_api_key:
         logging.error("OpenAI API key not found (OPENAI_API_KEY env var). Aborting test.")
         return
-        
+
     test_client = OpenAI(api_key=test_api_key)
     test_model = "gpt-4.1-mini"
 
     print("\n🔍 Portfolio Analysis Test Output (Standalone)\n")
     today = pd.Timestamp.utcnow()
-    
+
+    # --- UPDATED: Use the batch function for testing ---
+    print("\n--- Batch Data Fetch Test ---")
+    test_tickers_tuple = tuple(TICKERS_STANDALONE_TEST)
+    batch_results = get_batch_stock_data(test_tickers_tuple)
+    for ticker, data in batch_results.items():
+        logging.info(f"[{ticker}] Name: {data['company_name']}, Price: ${data['current_price']}")
+
     print("\n--- YTD Performance Test ---")
     ytd_start = today.replace(month=1, day=1).normalize()
     for tkr in TICKERS_STANDALONE_TEST[:2]:
@@ -210,7 +233,8 @@ def main(): # For standalone testing of portfolio_analysis.py
     for tkr in TICKERS_STANDALONE_TEST[:1]:
         try:
             price_data_mtd = get_price_performance(tkr, mtd_start, today, period_name="month-to-date")
-            c_name = company_name(tkr)
+            # Get company name from the batch results
+            c_name = batch_results.get(tkr, {}).get('company_name', tkr)
             analysis = gpt_paragraph_for_holding(price_data_mtd, c_name, test_client, test_model)
             print(f"\n📄 Newsletter analysis for {tkr} ({c_name}):\n{analysis}\n")
         except Exception as err:
