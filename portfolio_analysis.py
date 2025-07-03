@@ -5,6 +5,9 @@ import yfinance as yf
 from openai import OpenAI
 from typing import Dict, Any, Tuple, List
 import streamlit as st
+import re
+from datetime import datetime
+import json
 
 # ---------- LOGGING ----------
 logging.basicConfig(
@@ -19,6 +22,9 @@ TICKERS_STANDALONE_TEST = [
     "MSFT", "AAPL"
 ]
 
+# Initialize OpenAI client
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+
 def yahoo_friendly(tkr: str) -> str:
     """Converts a ticker to a yfinance-compatible format."""
     return tkr.replace("/", "-").replace(".", "-")
@@ -26,79 +32,61 @@ def yahoo_friendly(tkr: str) -> str:
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def get_batch_stock_data(tickers: Tuple[str, ...]) -> Dict[str, Dict[str, Any]]:
     """
-    Fetch current prices using bulk download ONLY - no .info calls!
-    This completely avoids the rate-limited quoteSummary endpoint.
+    Fetch current stock prices and company names using OpenAI search.
     """
     if not tickers:
         return {}
     
-    logging.info(f"Fetching current prices for {len(tickers)} tickers using bulk download (no .info calls)")
+    tickers_str = ", ".join(tickers)
+    today = datetime.now().strftime("%B %d, %Y")
     
-    yf_tickers = [yahoo_friendly(t) for t in tickers]
-    batch_data = {}
+    query = f"""Search for the most recent closing stock prices as of {today} for these companies: {tickers_str}
+
+Return a JSON object with the ticker symbol, company name, and current price:
+{{
+    "AAPL": {{"company_name": "Apple Inc.", "current_price": 212.44}},
+    "MSFT": {{"company_name": "Microsoft Corporation", "current_price": 420.50}}
+}}
+
+Include all requested tickers. Use the most recent closing price available."""
     
     try:
-        # Download last 5 days of data for all tickers at once
-        # This uses a different Yahoo endpoint that's not rate-limited like .info
-        df = yf.download(
-            yf_tickers,
-            period="5d",
-            interval="1d",
-            progress=False,
-            auto_adjust=True,
-            group_by='ticker' if len(tickers) > 1 else None,
-            threads=False
+        completion = client.chat.completions.create(
+            model="gpt-4o-search-preview",
+            web_search_options={
+                "search_context_size": "low"
+            },
+            messages=[{"role": "user", "content": query}]
         )
         
-        if df.empty:
-            logging.error("Bulk download returned empty DataFrame")
-            # Return with None prices instead of trying .info
-            return {ticker: {'company_name': ticker, 'current_price': None} for ticker in tickers}
+        content = completion.choices[0].message.content
+        logging.info(f"OpenAI response: {content[:200]}...")
         
-        # Extract the latest closing price for each ticker
-        for i, ticker in enumerate(tickers):
-            yf_ticker = yf_tickers[i]
-            try:
-                if len(tickers) > 1:
-                    # Multi-ticker download creates multi-level columns
-                    if yf_ticker in df.columns.levels[0]:
-                        ticker_close = df[yf_ticker]['Close'].dropna()
-                        if not ticker_close.empty:
-                            last_close = ticker_close.iloc[-1]
-                        else:
-                            last_close = None
-                    else:
-                        logging.warning(f"{yf_ticker} not found in download results")
-                        last_close = None
+        # Extract JSON from response
+        json_match = re.search(r'\{[\s\S]*\}', content)
+        if json_match:
+            stock_data = json.loads(json_match.group())
+            # Ensure all tickers are present
+            for ticker in tickers:
+                if ticker not in stock_data:
+                    stock_data[ticker] = {'company_name': ticker, 'current_price': None}
                 else:
-                    # Single ticker download has simple columns
-                    ticker_close = df['Close'].dropna()
-                    if not ticker_close.empty:
-                        last_close = ticker_close.iloc[-1]
-                    else:
-                        last_close = None
-                
-                batch_data[ticker] = {
-                    'company_name': ticker,  # Just use ticker as name - no .info calls!
-                    'current_price': float(last_close) if last_close is not None else None
-                }
-                
-            except Exception as e:
-                logging.warning(f"Could not extract price for {ticker}: {e}")
-                batch_data[ticker] = {'company_name': ticker, 'current_price': None}
-        
-        return batch_data
-        
+                    # Ensure company_name is present
+                    if 'company_name' not in stock_data[ticker]:
+                        stock_data[ticker]['company_name'] = ticker
+            return stock_data
+        else:
+            logging.error("No JSON found in OpenAI response")
+            return {ticker: {'company_name': ticker, 'current_price': None} for ticker in tickers}
+    
     except Exception as e:
-        logging.error(f"Bulk download failed: {e}")
-        # Return with None prices instead of retrying with .info
+        logging.error(f"Failed to fetch stock data from OpenAI: {e}")
         return {ticker: {'company_name': ticker, 'current_price': None} for ticker in tickers}
 
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def get_batch_price_performance(tickers: Tuple[str, ...], start_date: pd.Timestamp, end_date: pd.Timestamp, period_name: str = "period") -> Dict[str, Dict[str, Any]]:
     """
-    Fetches historical price performance for multiple tickers.
-    This already uses bulk download which is not rate-limited like .info
+    Fetches historical price performance for multiple tickers using Yahoo Finance.
     """
     if not tickers:
         return {}
@@ -106,7 +94,6 @@ def get_batch_price_performance(tickers: Tuple[str, ...], start_date: pd.Timesta
     yf_tickers = [yahoo_friendly(t) for t in tickers]
     
     try:
-        # This endpoint is much less rate-limited than .info
         df = yf.download(
             yf_tickers,
             start=start_date - pd.Timedelta(days=7),
@@ -193,7 +180,6 @@ def get_batch_price_performance(tickers: Tuple[str, ...], start_date: pd.Timesta
             
     return performance_data
 
-# Keep the GPT functions unchanged
 def build_prompt_for_holding(price_block: dict, long_name: str) -> str:
     period_desc = price_block.get('period_name', 'recent performance')
     direction = "up" if price_block['pct_change'] >= 0 else "down"
@@ -235,10 +221,10 @@ def gpt_paragraph_for_holding(price_block: dict, long_name: str, openai_client: 
 
 def main():
     """Test the bulk download approach"""
-    print("\n=== Testing Bulk Download Approach (No .info calls) ===")
+    print("\n=== Testing Bulk Download Approach ===")
     
     test_tickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "NFLX", "TSLA"]
-    print(f"\nFetching current prices for {test_tickers} using bulk download...")
+    print(f"\nFetching current prices for {test_tickers} using OpenAI search...")
     
     stock_data = get_batch_stock_data(tuple(test_tickers))
     print("\nResults:")
