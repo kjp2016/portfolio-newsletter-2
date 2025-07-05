@@ -377,7 +377,7 @@ def main():
     # Contact Advisor button at the top
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if st.button("📞 Contact an Advisor", use_container_width=True, type="primary"):
+        if st.button("📞 Contact an Advisor", use_container_width=True, type="primary", key="contact_advisor_top"):
             st.info("📧 Please contact us at: keanejpalmer@gmail.com")
             st.info("📱 Or call us at: (555) 123-4567")
     
@@ -387,7 +387,7 @@ def main():
     with st.sidebar:
         st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
         st.header("🔧 Admin Panel")
-        if st.button("📧 Send All Newsletters", use_container_width=True):
+        if st.button("📧 Send All Newsletters", use_container_width=True, key="send_all_newsletters"):
             users = get_all_users_from_sheets()
             if users:
                 with st.spinner(f"Sending newsletters to {len(users)} users..."):
@@ -448,7 +448,7 @@ def main():
                 except Exception as e:
                     st.error(f"❌ Error reading file: {e}")
                     st.error("This might be a file permission or format issue.")
-                    
+                
             except Exception as e:
                 st.error(f"❌ Error processing uploaded file: {e}")
                 st.error("Please try uploading a different file or check file permissions.")
@@ -457,7 +457,7 @@ def main():
         
         # --- FIX: Restored the processing logic here ---
         if uploaded_file and email:
-            if st.button("🔍 Process Portfolio", type="primary"):
+            if st.button("🔍 Process Portfolio", type="primary", key="process_portfolio"):
                 try:
                     # Create a progress container
                     progress_container = st.container()
@@ -635,7 +635,7 @@ def main():
                 st.metric("💰 Total Portfolio Value", f"${total_value:,.2f}")
                 st.markdown('</div>', unsafe_allow_html=True)
 
-            if st.button("📬 Send Test Newsletter", use_container_width=True):
+            if st.button("📬 Send Test Newsletter", use_container_width=True, key="send_test_newsletter"):
                 with st.spinner("Generating and sending your newsletter..."):
                     if generate_newsletter_for_user(email, holdings):
                         st.success(f"✅ Newsletter sent to {email}!")
