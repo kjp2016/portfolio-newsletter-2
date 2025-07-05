@@ -1,6 +1,7 @@
 # Python
 __pycache__/
 *.py[cod]
+<<<<<<< HEAD
 *$py.class
 *.so
 .Python
@@ -43,10 +44,20 @@ venv.bak/
 .Trashes
 ehthumbs.db
 Thumbs.db
+=======
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+>>>>>>> 9aaf0de4fbf5218bdb4f517057009637e1fbd103
 
 # Streamlit
 .streamlit/secrets.toml
 
+<<<<<<< HEAD
 # Logs
 *.log
 
@@ -64,3 +75,11 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+=======
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+>>>>>>> 9aaf0de4fbf5218bdb4f517057009637e1fbd103
