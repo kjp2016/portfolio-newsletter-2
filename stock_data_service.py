@@ -11,6 +11,7 @@ from typing import Dict, Any, Tuple, List, Optional
 import pandas as pd
 from openai import OpenAI
 import streamlit as st
+import random
 
 # ---------- LOGGING ----------
 logging.basicConfig(
@@ -22,7 +23,7 @@ logging.basicConfig(
 class StockDataService:
     """
     Multi-source stock data service with fallback mechanisms.
-    Prioritizes OpenAI web search for reliability, with yfinance as backup.
+    Uses OpenAI Responses API with web search for reliable stock data.
     """
     
     def __init__(self, openai_client: OpenAI):
@@ -32,135 +33,209 @@ class StockDataService:
         
     def get_current_prices(self, tickers: Tuple[str, ...]) -> Dict[str, Dict[str, Any]]:
         """
-        Fetch current stock prices using OpenAI web search.
+        Fetch current stock prices using individual API calls for each ticker.
         Returns: {ticker: {"company_name": str, "current_price": float}}
         """
         if not tickers:
             return {}
         
-        tickers_str = ", ".join(tickers)
+        stock_data = {}
         today = datetime.now().strftime("%B %d, %Y")
         
-        query = f"""
-Return ONLY a JSON object (no markdown, no explanation, no prose) with the most recent closing stock prices as of {today} for these companies: {tickers_str}
+        for ticker in tickers:
+            logging.info(f"Fetching current price for {ticker}...")
+            
+            query = f"""You are a financial data researcher. Find the CURRENT stock price for {ticker} as of {today}.
 
-Format:
+Search the web for the most recent closing stock price for {ticker}.
+Return ONLY a JSON object with the current price:
+
 {{
-    "AAPL": {{"company_name": "Apple Inc.", "current_price": 212.44}},
-    "MSFT": {{"company_name": "Microsoft Corporation", "current_price": 420.50}}
+    "company_name": "[Full Company Name]",
+    "current_price": [price]
 }}
 
-Include all requested tickers. Use the most recent closing price available from reliable financial sources.
-"""
-        
-        try:
-            response = self.client.responses.create(
-                model="gpt-4.1",
-                tools=[{"type": "web_search_preview"}],
-                input=query
-            )
-            content = response.output_text
-            logging.info(f"OpenAI current prices response: {content[:200]}...")
-            # Extract JSON from response
-            json_match = re.search(r'\{[\s\S]*\}', content)
-            if json_match:
-                stock_data = json.loads(json_match.group())
-                # Ensure all tickers are present
-                for ticker in tickers:
-                    if ticker not in stock_data:
+CRITICAL REQUIREMENTS:
+- Use web search to find current market price
+- Return realistic stock price
+- Include full company name
+- Return ONLY the JSON object - no explanation, no markdown, no other text
+- The response must start with {{ and end with }}
+- Do not include any text before or after the JSON
+- Do not use ```json``` formatting - just return the raw JSON"""
+
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    response = self.client.responses.create(
+                        model="gpt-4o-mini",
+                        tools=[{"type": "web_search_preview"}],
+                        input=query
+                    )
+                    
+                    output_text = response.output_text
+                    if output_text is None:
+                        raise ValueError("OpenAI returned None content")
+                    
+                    # Try to extract JSON from response - be more flexible
+                    json_match = re.search(r'```json\s*(\{[\s\S]*?\})\s*```', output_text)
+                    if not json_match:
+                        json_match = re.search(r'\{[\s\S]*\}', output_text)
+                    
+                    if json_match:
+                        json_str = json_match.group(1) if json_match.groups() else json_match.group(0)
+                        ticker_data = json.loads(json_str)
+                        
+                        # Validate price data
+                        current_price = ticker_data.get('current_price')
+                        company_name = ticker_data.get('company_name', ticker)
+                        
+                        if isinstance(current_price, (int, float)) and current_price > 0:
+                            stock_data[ticker] = {
+                                'company_name': company_name,
+                                'current_price': current_price
+                            }
+                            logging.info(f"Successfully retrieved current price for {ticker}: ${current_price}")
+                            break  # Success, move to next ticker
+                        else:
+                            raise ValueError(f"Invalid price data for {ticker}: {current_price}")
+                    else:
+                        raise ValueError("No JSON found in response")
+                        
+                except Exception as e:
+                    logging.error(f"Attempt {attempt + 1} failed to fetch current price for {ticker}: {e}")
+                    if attempt == max_retries - 1:
+                        # Last attempt failed, return error data
                         stock_data[ticker] = {'company_name': ticker, 'current_price': None}
                     else:
-                        # Ensure company_name is present
-                        if 'company_name' not in stock_data[ticker]:
-                            stock_data[ticker]['company_name'] = ticker
-                return stock_data
-            else:
-                logging.error("No JSON found in OpenAI current prices response. Full response: %s", content)
-                return {ticker: {'company_name': ticker, 'current_price': None} for ticker in tickers}
-        except Exception as e:
-            logging.error(f"Failed to fetch current prices from OpenAI: {e}")
-            return {ticker: {'company_name': ticker, 'current_price': None} for ticker in tickers}
+                        # Wait before retrying
+                        import time
+                        time.sleep(2 ** attempt)  # Exponential backoff
+        
+        valid_count = sum(1 for data in stock_data.values() 
+                         if data.get('current_price') is not None and data.get('current_price') > 0)
+        logging.info(f"Successfully retrieved current prices for {valid_count}/{len(tickers)} tickers")
+        return stock_data
     
     def get_historical_prices(self, tickers: Tuple[str, ...], start_date: pd.Timestamp, end_date: pd.Timestamp) -> Dict[str, Dict[str, Any]]:
         """
-        Fetch historical price data using OpenAI web search.
+        Fetch historical price data using individual API calls for each ticker.
         Returns: {ticker: {"start_price": float, "end_price": float, "start_date": str, "end_date": str}}
         """
         if not tickers:
             return {}
 
-        # Format dates for the query
-        start_date_str = start_date.strftime("%B %d, %Y")
-        end_date_str = end_date.strftime("%B %d, %Y")
-        tickers_str = ", ".join(tickers)
+        # First, get current prices (end_date)
+        current_prices = self.get_current_prices(tickers)
         
-        query = f"""Search for historical stock price data for these companies: {tickers_str}
+        # Then, get historical prices (start_date) for each ticker individually
+        start_date_str = start_date.strftime("%B %d, %Y")
+        performance_data = {}
+        
+        for ticker in tickers:
+            logging.info(f"Fetching historical price for {ticker} on {start_date_str}...")
+            
+            query = f"""You are a financial data researcher. Find the ACTUAL historical closing stock price for {ticker} on {start_date_str}.
 
-I need the closing prices on {start_date_str} and {end_date_str} to calculate performance.
+STEP-BY-STEP INSTRUCTIONS:
+1. Search the web for "historical stock price {ticker} {start_date_str}"
+2. Look for financial websites like Yahoo Finance, MarketWatch, Alpha Vantage, or similar
+3. Find the CLOSING PRICE for the specified date
+4. If {start_date_str} was a weekend/holiday, find the closing price from the most recent trading day before that date
+5. Do NOT use current prices - only use historical closing prices from the specified date
+6. IMPORTANT: The price you return must be DIFFERENT from current market prices
 
-Return a JSON object with this exact format:
+Return ONLY a JSON object with the historical closing price:
+
 {{
-    "AAPL": {{
-        "start_date": "2024-01-15",
-        "start_price": 185.92,
-        "end_date": "2024-01-22", 
-        "end_price": 191.56
-    }},
-    "MSFT": {{
-        "start_date": "2024-01-15",
-        "start_price": 388.47,
-        "end_date": "2024-01-22",
-        "end_price": 397.58
-    }}
+    "historical_price": [price]
 }}
 
-Use the most accurate closing prices available for each date. If exact dates aren't available, use the closest trading day."""
-        
-        try:
-            response = self.client.responses.create(
-                model="gpt-4.1",
-                tools=[{"type": "web_search_preview"}],
-                input=query
-            )
-            content = response.output_text
-            logging.info(f"OpenAI historical data response: {content[:200]}...")
-            # Extract JSON from response
-            json_match = re.search(r'\{[\s\S]*\}', content)
-            if json_match:
-                historical_data = json.loads(json_match.group())
-                performance_data = {}
-                for ticker in tickers:
-                    if ticker in historical_data:
-                        ticker_data = historical_data[ticker]
-                        # Extract prices and dates
-                        start_price = ticker_data.get('start_price')
-                        end_price = ticker_data.get('end_price')
-                        start_date_actual = ticker_data.get('start_date')
-                        end_date_actual = ticker_data.get('end_date')
-                        if start_price is not None and end_price is not None:
+CRITICAL REQUIREMENTS:
+- Search for ACTUAL historical data, not current prices
+- Use web search to find real historical closing prices
+- If the date was a weekend/holiday, use the previous trading day's closing price
+- Price must be realistic (typically $1-$1000 for most stocks)
+- Do NOT return current market prices under any circumstances
+- Search multiple financial websites to verify accuracy
+- The historical price MUST be different from current prices to be valid
+- Return ONLY the JSON object - no explanation, no markdown, no other text
+- The response must start with {{ and end with }}
+- Do not include any text before or after the JSON
+- Do not use ```json``` formatting - just return the raw JSON"""
+
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    response = self.client.responses.create(
+                        model="gpt-4o-mini",
+                        tools=[{"type": "web_search_preview"}],
+                        input=query
+                    )
+                    
+                    output_text = response.output_text
+                    if output_text is None:
+                        raise ValueError("OpenAI returned None content")
+                    
+                    # Try to extract JSON from response
+                    json_match = re.search(r'```json\s*(\{[\s\S]*?\})\s*```', output_text)
+                    if not json_match:
+                        json_match = re.search(r'\{[\s\S]*\}', output_text)
+                    
+                    if json_match:
+                        json_str = json_match.group(1) if json_match.groups() else json_match.group(0)
+                        ticker_data = json.loads(json_str)
+                        
+                                                # Get historical price
+                        start_price = ticker_data.get('historical_price')
+                        
+                        # Handle case where AI returns a list instead of a number
+                        if isinstance(start_price, list) and len(start_price) > 0:
+                            start_price = start_price[0]
+                        
+                        # Get current price
+                        current_data = current_prices.get(ticker, {})
+                        end_price = current_data.get('current_price')
+                        
+                        # Validate price data - check for realistic stock prices
+                        if (start_price is not None and end_price is not None and 
+                            isinstance(start_price, (int, float)) and isinstance(end_price, (int, float)) and
+                            start_price > 0 and end_price > 0 and
+                            start_price < 10000 and end_price < 10000):  # Reasonable upper bound
+                            
                             # Calculate performance metrics
-                            abs_change = end_price - start_price
-                            pct_change = (abs_change / start_price) * 100 if start_price != 0 else 0.0
+                            abs_change = float(end_price) - float(start_price)
+                            pct_change = (abs_change / float(start_price)) * 100 if start_price != 0 else 0.0
                             performance_data[ticker] = {
                                 "ticker": ticker.upper(),
-                                "first_date": start_date_actual,
-                                "last_date": end_date_actual,
-                                "first_close": round(start_price, 2),
-                                "last_close": round(end_price, 2),
+                                "first_date": start_date.strftime("%Y-%m-%d"),
+                                "last_date": end_date.strftime("%Y-%m-%d"),
+                                "first_close": round(float(start_price), 2),
+                                "last_close": round(float(end_price), 2),
                                 "abs_change": round(abs_change, 2),
                                 "pct_change": round(pct_change, 2),
                             }
+                            logging.info(f"Successfully retrieved historical price for {ticker}: ${start_price} → ${end_price} ({pct_change:.2f}%)")
+                            break  # Success, move to next ticker
                         else:
-                            performance_data[ticker] = {"error": "Missing price data"}
+                            logging.warning(f"Invalid price data for {ticker}: start_price={start_price}, end_price={end_price}")
+                            raise ValueError(f"Invalid price data for {ticker}")
                     else:
-                        performance_data[ticker] = {"error": "Ticker not found in response"}
-                return performance_data
-            else:
-                logging.error("No JSON found in OpenAI historical data response")
-                return {ticker: {"error": "No data available"} for ticker in tickers}
-        except Exception as e:
-            logging.error(f"Failed to fetch historical data from OpenAI: {e}")
-            return {ticker: {"error": str(e)} for ticker in tickers}
+                        raise ValueError("No JSON found in response")
+                        
+                except Exception as e:
+                    logging.error(f"Attempt {attempt + 1} failed to fetch historical price for {ticker}: {e}")
+                    if attempt == max_retries - 1:
+                        # Last attempt failed, return error data
+                        performance_data[ticker] = {"error": f"Failed after {max_retries} attempts: {str(e)}"}
+                    else:
+                        # Wait before retrying
+                        import time
+                        time.sleep(2 ** attempt)  # Exponential backoff
+        
+        valid_count = sum(1 for data in performance_data.values() if "error" not in data)
+        logging.info(f"Successfully retrieved historical data for {valid_count}/{len(tickers)} tickers")
+        return performance_data
     
     def get_batch_price_performance(self, tickers: Tuple[str, ...], start_date: pd.Timestamp, end_date: pd.Timestamp, period_name: str = "period") -> Dict[str, Dict[str, Any]]:
         """
@@ -168,10 +243,12 @@ Use the most accurate closing prices available for each date. If exact dates are
         Returns data in the format expected by the existing codebase.
         """
         performance_data = self.get_historical_prices(tickers, start_date, end_date)
+        
         # Add period_name to each result
         for ticker_data in performance_data.values():
             if "error" not in ticker_data:
                 ticker_data["period_name"] = period_name
+        
         return performance_data
     
     def validate_tickers(self, tickers: List[str]) -> List[str]:

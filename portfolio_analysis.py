@@ -1,22 +1,13 @@
 import logging
 import os
 import pandas as pd
-<<<<<<< HEAD
-=======
-import yfinance as yf
->>>>>>> 9aaf0de4fbf5218bdb4f517057009637e1fbd103
 from openai import OpenAI
 from typing import Dict, Any, Tuple, List
 import streamlit as st
 import re
-<<<<<<< HEAD
 from datetime import datetime, timedelta
 import json
 from stock_data_service import get_stock_data_service
-=======
-from datetime import datetime
-import json
->>>>>>> 9aaf0de4fbf5218bdb4f517057009637e1fbd103
 
 # ---------- LOGGING ----------
 logging.basicConfig(
@@ -34,182 +25,28 @@ TICKERS_STANDALONE_TEST = [
 # Initialize OpenAI client
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-<<<<<<< HEAD
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def get_batch_stock_data(tickers: Tuple[str, ...]) -> Dict[str, Dict[str, Any]]:
     """
     Fetch current stock prices and company names using the stock data service.
-=======
-def yahoo_friendly(tkr: str) -> str:
-    """Converts a ticker to a yfinance-compatible format."""
-    return tkr.replace("/", "-").replace(".", "-")
-
-@st.cache_data(ttl=3600)  # Cache for 1 hour
-def get_batch_stock_data(tickers: Tuple[str, ...]) -> Dict[str, Dict[str, Any]]:
-    """
-    Fetch current stock prices and company names using OpenAI search.
->>>>>>> 9aaf0de4fbf5218bdb4f517057009637e1fbd103
     """
     if not tickers:
         return {}
     
-<<<<<<< HEAD
     service = get_stock_data_service()
     return service.get_current_prices(tickers)
-=======
-    tickers_str = ", ".join(tickers)
-    today = datetime.now().strftime("%B %d, %Y")
-    
-    query = f"""Search for the most recent closing stock prices as of {today} for these companies: {tickers_str}
-
-Return a JSON object with the ticker symbol, company name, and current price:
-{{
-    "AAPL": {{"company_name": "Apple Inc.", "current_price": 212.44}},
-    "MSFT": {{"company_name": "Microsoft Corporation", "current_price": 420.50}}
-}}
-
-Include all requested tickers. Use the most recent closing price available."""
-    
-    try:
-        completion = client.chat.completions.create(
-            model="gpt-4o-search-preview",
-            web_search_options={
-                "search_context_size": "low"
-            },
-            messages=[{"role": "user", "content": query}]
-        )
-        
-        content = completion.choices[0].message.content
-        logging.info(f"OpenAI response: {content[:200]}...")
-        
-        # Extract JSON from response
-        json_match = re.search(r'\{[\s\S]*\}', content)
-        if json_match:
-            stock_data = json.loads(json_match.group())
-            # Ensure all tickers are present
-            for ticker in tickers:
-                if ticker not in stock_data:
-                    stock_data[ticker] = {'company_name': ticker, 'current_price': None}
-                else:
-                    # Ensure company_name is present
-                    if 'company_name' not in stock_data[ticker]:
-                        stock_data[ticker]['company_name'] = ticker
-            return stock_data
-        else:
-            logging.error("No JSON found in OpenAI response")
-            return {ticker: {'company_name': ticker, 'current_price': None} for ticker in tickers}
-    
-    except Exception as e:
-        logging.error(f"Failed to fetch stock data from OpenAI: {e}")
-        return {ticker: {'company_name': ticker, 'current_price': None} for ticker in tickers}
->>>>>>> 9aaf0de4fbf5218bdb4f517057009637e1fbd103
 
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def get_batch_price_performance(tickers: Tuple[str, ...], start_date: pd.Timestamp, end_date: pd.Timestamp, period_name: str = "period") -> Dict[str, Dict[str, Any]]:
     """
-<<<<<<< HEAD
     Fetches historical price performance for multiple tickers using the stock data service.
     Replaces the Yahoo Finance implementation to avoid rate limiting issues.
-=======
-    Fetches historical price performance for multiple tickers using Yahoo Finance.
->>>>>>> 9aaf0de4fbf5218bdb4f517057009637e1fbd103
     """
     if not tickers:
         return {}
 
-<<<<<<< HEAD
     service = get_stock_data_service()
     return service.get_batch_price_performance(tickers, start_date, end_date, period_name)
-=======
-    yf_tickers = [yahoo_friendly(t) for t in tickers]
-    
-    try:
-        df = yf.download(
-            yf_tickers,
-            start=start_date - pd.Timedelta(days=7),
-            end=end_date + pd.Timedelta(days=1),
-            progress=False,
-            auto_adjust=True,
-            group_by='ticker' if len(tickers) > 1 else None,
-            threads=False
-        )
-        
-        if df.empty:
-            logging.error("Historical download returned empty DataFrame")
-            return {}
-
-        performance_data = {}
-        for i, ticker in enumerate(tickers):
-            try:
-                yf_ticker = yf_tickers[i]
-                
-                if len(tickers) > 1:
-                    if yf_ticker in df.columns.levels[0]:
-                        ticker_df = df[yf_ticker]
-                    else:
-                        logging.warning(f"{yf_ticker} not found in historical data")
-                        performance_data[ticker] = {"error": "Ticker not found in download"}
-                        continue
-                else:
-                    ticker_df = df
-                
-                if ticker_df.empty or ticker_df['Close'].dropna().empty:
-                    performance_data[ticker] = {"error": "No price data available"}
-                    continue
-                
-                # Timezone handling
-                if ticker_df.index.tz is None:
-                    ticker_df.index = ticker_df.index.tz_localize('UTC', ambiguous='infer', nonexistent='shift_forward')
-                elif ticker_df.index.tz.zone != 'UTC':
-                    ticker_df.index = ticker_df.index.tz_convert('UTC')
-
-                # Get data within date range
-                df_after_start = ticker_df[ticker_df.index >= start_date.normalize()].dropna()
-                if df_after_start.empty:
-                    performance_data[ticker] = {"error": "No data after start date"}
-                    continue
-                
-                first_row = df_after_start.iloc[0]
-                first_close = float(first_row["Close"])
-                actual_start_date_ts = first_row.name
-
-                df_before_end = ticker_df[ticker_df.index <= end_date].dropna()
-                if df_before_end.empty:
-                    last_row = first_row
-                else:
-                    last_row = df_before_end.iloc[-1]
-
-                last_close = float(last_row["Close"])
-                actual_end_date_ts = last_row.name
-
-                if pd.isna(first_close) or pd.isna(last_close):
-                    performance_data[ticker] = {"error": "Invalid price data"}
-                    continue
-
-                abs_change = last_close - first_close
-                pct_change = (abs_change / first_close) * 100 if first_close != 0 else 0.0
-
-                performance_data[ticker] = {
-                    "ticker": ticker.upper(),
-                    "period_name": period_name,
-                    "first_date": actual_start_date_ts.date().isoformat(),
-                    "last_date": actual_end_date_ts.date().isoformat(),
-                    "first_close": round(first_close, 2),
-                    "last_close": round(last_close, 2),
-                    "abs_change": round(abs_change, 2),
-                    "pct_change": round(pct_change, 2),
-                }
-                
-            except Exception as e:
-                logging.warning(f"Could not calculate performance for {ticker}: {e}")
-                performance_data[ticker] = {"error": str(e)}
-                
-    except Exception as e:
-        logging.error(f"Historical bulk download failed: {e}")
-        return {}
-            
-    return performance_data
->>>>>>> 9aaf0de4fbf5218bdb4f517057009637e1fbd103
 
 def build_prompt_for_holding(price_block: dict, long_name: str) -> str:
     period_desc = price_block.get('period_name', 'recent performance')
@@ -217,7 +54,7 @@ def build_prompt_for_holding(price_block: dict, long_name: str) -> str:
     return (
         f"Create a bullet-point analysis for a client newsletter about {long_name} ({price_block['ticker']}).\n"
         f"The stock is {direction} ${abs(price_block['abs_change'])} ({price_block['pct_change']}%) for the {period_desc}.\n\n"
-        f"Format your response as exactly 3-4 bullet points using this structure:\n"
+        f"Format your response as exactly 4 bullet points using this structure:\n"
         f"• **Performance**: [One sentence about the price movement and percentage change]\n"
         f"• **Key Driver**: [Main factor or news that influenced this performance, with cited source]\n"
         f"• **Additional Context**: [Secondary factor, analyst opinion, or sector trend, with cited source]\n"
@@ -226,29 +63,58 @@ def build_prompt_for_holding(price_block: dict, long_name: str) -> str:
         f"- Include inline URL citations (e.g., [Source URL]) for any news mentioned\n"
         f"- Keep each bullet point to 1-2 sentences maximum\n"
         f"- Use clear, professional language without jargon\n"
-        f"- Focus on information from the past month\n\n"
-        f"Return ONLY the bullet points, no introduction or conclusion."
+        f"- Focus on information from the past month\n"
+        f"- Do NOT include raw market data, stock quotes, or technical indicators\n"
+        f"- Return ONLY the 4 bullet points in the exact format specified above\n\n"
+        f"Return ONLY the bullet points, no introduction, conclusion, or other text."
     )
 
 def gpt_paragraph_for_holding(price_block: dict, long_name: str, openai_client: OpenAI, model_name: str) -> str:
-    try:
-        prompt = build_prompt_for_holding(price_block, long_name)
-        logging.info(f"[GPT - {price_block['ticker']}] Generating holding analysis...")
-        response = openai_client.chat.completions.create(
-            model=model_name,
-            messages=[
-                {"role": "system", "content": "You are a financial news analyst."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.2,
-        )
-        analysis = response.choices[0].message.content.strip()
-        if not analysis:
-            raise ValueError("API call returned an empty response.")
-        return analysis
-    except Exception as e:
-        logging.error(f"[GPT - {price_block['ticker']}] API call for holding analysis failed: {e}")
-        return f"⚠️ GPT call failed for {price_block['ticker']}: {e}"
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            prompt = build_prompt_for_holding(price_block, long_name)
+            logging.info(f"[GPT - {price_block['ticker']}] Generating holding analysis (attempt {attempt + 1})...")
+            
+            # Use the Responses API with web search tools
+            response = openai_client.responses.create(
+                model="gpt-4o-mini",
+                tools=[{"type": "web_search_preview"}],
+                input=prompt
+            )
+            
+            # Extract the output text from the response
+            output_text = response.output_text
+            if output_text is None:
+                raise ValueError("OpenAI returned None content")
+            
+            analysis = output_text.strip()
+            if not analysis:
+                raise ValueError("OpenAI returned an empty response")
+            
+            # Validate the format - ensure it contains bullet points and key sections
+            has_bullets = any(char in analysis for char in ['•', '*', '-'])
+            has_performance = any(phrase in analysis for phrase in ['Performance', 'performance'])
+            has_key_driver = any(phrase in analysis for phrase in ['Key Driver', 'key driver'])
+            has_additional_context = any(phrase in analysis for phrase in ['Additional Context', 'additional context'])
+            has_outlook = any(phrase in analysis for phrase in ['Outlook', 'outlook'])
+            
+            if not has_bullets or not (has_performance and has_key_driver and has_additional_context and has_outlook):
+                raise ValueError("Response does not contain expected bullet-point format")
+            
+            logging.info(f"[GPT - {price_block['ticker']}] Successfully generated analysis (attempt {attempt + 1})")
+            return analysis
+            
+        except Exception as e:
+            logging.error(f"[GPT - {price_block['ticker']}] Attempt {attempt + 1} failed: {e}")
+            if attempt == max_retries - 1:
+                # Last attempt failed, return error message
+                return f"⚠️ Unable to generate analysis for {price_block['ticker']} after {max_retries} attempts: {str(e)}"
+            # Wait before retrying
+            import time
+            time.sleep(2 ** attempt)  # Exponential backoff
+    
+    return f"⚠️ Unable to generate analysis for {price_block['ticker']} after all attempts."
 
 def main():
     """Test the bulk download approach"""
@@ -266,12 +132,25 @@ def main():
         else:
             print(f"  {ticker}: Price unavailable")
     
-    # Test historical data
-    today = pd.Timestamp.utcnow()
+    # Test historical data with proper timestamp validation
+    today = pd.Timestamp.now()
     week_ago = today - pd.Timedelta(days=7)
     
+    # Ensure timestamps are valid before passing to function
+    if week_ago is pd.NaT or today is pd.NaT:
+        print("Error: Invalid timestamps generated")
+        return
+    
+    # Convert to proper Timestamp objects
+    week_ago_ts = week_ago
+    today_ts = today
+    
     print(f"\nFetching weekly performance...")
-    perf_data = get_batch_price_performance(tuple(test_tickers[:3]), week_ago, today, "weekly")
+    if isinstance(week_ago_ts, pd.Timestamp) and isinstance(today_ts, pd.Timestamp):
+        perf_data = get_batch_price_performance(tuple(test_tickers[:3]), week_ago_ts, today_ts, "weekly")
+    else:
+        print("Error: Invalid timestamps")
+        return
     
     print("\nWeekly Performance:")
     for ticker, perf in perf_data.items():

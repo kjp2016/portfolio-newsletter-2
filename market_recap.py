@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import List # Added for type hinting
 from openai import OpenAI
 import streamlit as st
+import time
 
 
 # ---------- LOGGING ----------
@@ -59,33 +60,41 @@ def generate_market_recap_with_search(portfolio_tickers: List[str]) -> str:
     prompt = build_recap_prompt(portfolio_tickers)
     logging.info(f"[GPT] Generating focused market highlights for tickers: {', '.join(portfolio_tickers)}. Prompt snippet: '{prompt[:250]}...'")
 
-    try:
-        # Assuming client.responses.create is the intended method for models with web_search_preview
-        # If using a different client structure (e.g. client.chat.completions.create with tools for gpt-4-turbo)
-        # this part might need adjustment. The original code used client.responses.create.
-        response = client.responses.create( # This API might be specific or deprecated.
-                                           # Standard way for newer models is client.chat.completions.create
-            model=OPENAI_MODEL,
-            tools=[{"type": "web_search_preview"}], # web_search_preview tool
-            input=prompt, # 'input' is typical for client.responses.create
-        )
-        recap_text = response.output_text.strip()
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            # Use the Responses API with web search tools
+            response = client.responses.create(
+                model="gpt-4o-mini",
+                tools=[{"type": "web_search_preview"}],
+                input=prompt
+            )
+            
+            # Extract the output text from the response
+            output_text = response.output_text
+            if output_text is None:
+                raise ValueError("OpenAI returned None content")
+            
+            recap_text = output_text.strip()
 
-        if not recap_text:
-            logging.warning("[GPT] API call for market recap returned an empty response.")
-            return "⚠️ Market recap generation returned an empty response. Key events could not be summarized at this time."
-        return recap_text
-    except Exception as e:
-        logging.error(f"[GPT] API call for market recap failed: {e}")
-        logging.debug(traceback.format_exc())
-        # Specific error handling from original code
-        if "model_not_found" in str(e).lower() and "Responses API" in str(e).lower(): # Check error message content
-             return (f"⚠️ Market Recap GPT API call failed: {e}. The model '{OPENAI_MODEL}' may not be "
-                     f"supported with the Responses API and web_search_preview tool. "
-                     f"Consider using 'gpt-4.1' or newer chat models with appropriate tool configuration.")
-        elif "Rate limit" in str(e):
-            return "⚠️ Market recap generation failed due to API rate limits. Please try again later."
-        return f"⚠️ Market recap generation failed due to an API error: {e}"
+            if not recap_text:
+                raise ValueError("OpenAI returned an empty response")
+            
+            logging.info(f"[GPT] Successfully generated market recap (attempt {attempt + 1})")
+            return recap_text
+            
+        except Exception as e:
+            logging.error(f"[GPT] Attempt {attempt + 1} failed for market recap: {e}")
+            if attempt == max_retries - 1:
+                # Last attempt failed, return error message
+                if "rate limit" in str(e).lower():
+                    return "⚠️ Market recap generation failed due to API rate limits. Please try again later."
+                else:
+                    return f"⚠️ Market recap generation failed after {max_retries} attempts: {str(e)}"
+            # Wait before retrying
+            time.sleep(2 ** attempt)  # Exponential backoff
+    
+    return "⚠️ Market recap generation failed after all attempts."
 
 
 def main():  # Example usage

@@ -83,28 +83,42 @@ def get_overall_portfolio_performance(
 
 
 def generate_holdings_blocks(portfolio_tickers: Tuple[str, ...]) -> List[dict]:
-    """Generates analysis paragraphs for each holding using batch data."""
+    """Generates analysis paragraphs for each holding using batch data, limited to top 5 movers."""
     today = pd.Timestamp.utcnow()
-    start_mtd = today.replace(day=1).normalize()
+    week_ago = today - timedelta(days=7)  # Use weekly period for individual stock analysis
 
     # Fetch all data in batches first
     company_data = get_batch_stock_data(portfolio_tickers)
-    price_data_mtd = get_batch_price_performance(portfolio_tickers, start_mtd, today, period_name="month-to-date")
+    price_data_weekly = get_batch_price_performance(portfolio_tickers, week_ago, today, period_name="weekly")
 
-    holdings_blocks = []
+    # Filter and sort by absolute percentage change to get top 5 movers
+    valid_price_data = []
     for ticker in portfolio_tickers:
+        price_data = price_data_weekly.get(ticker)
+        if price_data and 'error' not in price_data:
+            valid_price_data.append((ticker, price_data))
+    
+    # Sort by absolute percentage change (biggest movers first)
+    valid_price_data.sort(key=lambda x: abs(x[1].get('pct_change', 0)), reverse=True)
+    
+    # Take only the top 5 movers
+    top_5_movers = valid_price_data[:5]
+    
+    holdings_blocks = []
+    for ticker, price_data in top_5_movers:
         try:
-            price_data = price_data_mtd.get(ticker)
             name = company_data.get(ticker, {}).get('company_name', ticker)
-
-            if not price_data or 'error' in price_data:
-                raise ValueError(f"Missing or invalid price data for {ticker}")
-
             para = gpt_paragraph_for_holding(price_data, name, client, OPENAI_MODEL)
+            
+            # Validate the analysis format
+            if para.startswith("⚠️") or "Unable to generate" in para:
+                logging.warning(f"Skipping {ticker}: Analysis generation failed")
+                continue  # Skip this ticker entirely
+            
             holdings_blocks.append({"ticker": ticker, "para": para})
         except Exception as e:
-            logging.warning(f"Skipping holdings block for {ticker}: {e}")
-            holdings_blocks.append({"ticker": ticker, "para": f"⚠️ Unable to generate detailed analysis for {ticker}."})
+            logging.warning(f"Skipping {ticker}: {e}")
+            continue  # Skip this ticker entirely
 
     return holdings_blocks
 
@@ -194,7 +208,7 @@ def generate_newsletter_for_user(email: str, holdings: Dict[str, float]) -> bool
 if __name__ == "__main__":
     logging.info("Running standalone test for main.py...")
     # Example test case
-    test_holdings = {"AAPL": 10, "MSFT": 20, "GOOGL": 5}
+    test_holdings = {"AAPL": 10.0, "MSFT": 20.0, "GOOGL": 5.0}
     test_email = "keanejpalmer@gmail.com"  # A test recipient
     
     if not all([OPENAI_API_KEY, GMAIL_APP_PASSWORD]):
