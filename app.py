@@ -642,12 +642,6 @@ def main():
                     else:
                         st.error("❌ Failed to send newsletter. Check logs for details.")
             
-            # Contact Advisor button at the bottom
-            st.markdown("---")
-            if st.button("📞 Contact an Advisor", use_container_width=True, type="primary"):
-                st.info("📧 Please contact us at: keanejpalmer@gmail.com")
-                st.info("📱 Or call us at: (555) 123-4567")
-            
             st.markdown('</div>', unsafe_allow_html=True)
         else:
             st.markdown('<div class="portfolio-display">', unsafe_allow_html=True)
