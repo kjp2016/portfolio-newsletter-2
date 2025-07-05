@@ -1,0 +1,56 @@
+STEPHEN FINANCIAL
+================================================================================
+
+                            WEEKLY MARKET PULSE
+                               {{ date }}
+
+================================================================================
+
+PORTFOLIO PERFORMANCE SUMMARY
+-----------------------------
+
+{{ intro_summary_text }}
+
+
+================================================================================
+
+WEEKLY MARKET HIGHLIGHTS
+------------------------
+
+{{ market_block }}
+
+
+================================================================================
+
+YOUR HOLDINGS ANALYSIS
+----------------------
+
+{% for holding in holdings %}
+{{ holding.ticker }}
+{{ '-' * holding.ticker|length }}
+
+{{ holding.para }}
+
+{% endfor %}
+
+================================================================================
+
+Need personalized advice about your portfolio?
+Contact your Stephen Financial advisor today:
+Email: advisor@stephenfinancial.com
+Phone: 1-800-STEPHEN
+
+================================================================================
+
+© 2025 Stephen Financial. All rights reserved.
+
+To unsubscribe from these updates, please contact your advisor.
+
+--------------------------------------------------------------------------------
+
+DISCLAIMER: This email is for informational purposes only and should not be 
+considered investment advice. Past performance is not indicative of future 
+results. Please consult with your financial advisor before making any investment 
+decisions.
+
+================================================================================
