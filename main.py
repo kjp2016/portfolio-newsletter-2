@@ -103,7 +103,7 @@ def generate_holdings_blocks(portfolio_tickers: Tuple[str, ...]) -> List[dict]:
     
     # Take only the top 5 movers
     top_5_movers = valid_price_data[:5]
-    
+
     holdings_blocks = []
     for ticker, price_data in top_5_movers:
         try:
@@ -179,6 +179,11 @@ def generate_newsletter_for_user(email: str, holdings: Dict[str, float]) -> bool
     overall_weekly_change_pct = weekly_perf.get('overall_change_pct', 0.0)
     major_movers = weekly_perf.get('major_movers', [])
     overall_ytd_change_pct = ytd_perf.get('overall_change_pct', 0.0)
+
+    # --- SKIP EMAIL IF PORTFOLIO DROPS MORE THAN 5% ---
+    if overall_weekly_change_pct < -5.0:
+        logging.warning(f"Portfolio for {email} dropped {overall_weekly_change_pct:.2f}% this week. Skipping email send.")
+        return False
 
     # --- 2. Generate AI Content ---
     market_block_md = generate_market_recap_with_search(list(tickers_tuple))

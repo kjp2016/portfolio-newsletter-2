@@ -76,13 +76,11 @@ def generate_market_recap_with_search(portfolio_tickers: List[str]) -> str:
                 raise ValueError("OpenAI returned None content")
             
             recap_text = output_text.strip()
-
             if not recap_text:
                 raise ValueError("OpenAI returned an empty response")
             
             logging.info(f"[GPT] Successfully generated market recap (attempt {attempt + 1})")
             return recap_text
-            
         except Exception as e:
             logging.error(f"[GPT] Attempt {attempt + 1} failed for market recap: {e}")
             if attempt == max_retries - 1:

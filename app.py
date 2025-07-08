@@ -127,22 +127,22 @@ def extract_portfolio_with_ai(content: str, file_type: str) -> Dict[str, float]:
         - Only include valid stock symbols (3-5 letters)
         """
     else:
-        prompt = f"""
-        Analyze the following {file_type} content and extract stock portfolio information.
-        Extract all stock tickers and the number of shares held. Look for:
-        - Stock symbols (like AAPL, MSFT, GOOGL, etc.)
-        - Company names that can be mapped to tickers
-        - Number of shares, quantities, or positions
-        Content:
-        {content[:4000]}
-        Return the data as a JSON object with this exact format:
-        {{
-            "holdings": [
-                {{"ticker": "AAPL", "shares": 100}},
-                {{"ticker": "MSFT", "shares": 50}}
-            ]
-        }}
-        """
+    prompt = f"""
+    Analyze the following {file_type} content and extract stock portfolio information.
+    Extract all stock tickers and the number of shares held. Look for:
+    - Stock symbols (like AAPL, MSFT, GOOGL, etc.)
+    - Company names that can be mapped to tickers
+    - Number of shares, quantities, or positions
+    Content:
+    {content[:4000]}
+    Return the data as a JSON object with this exact format:
+    {{
+        "holdings": [
+            {{"ticker": "AAPL", "shares": 100}},
+            {{"ticker": "MSFT", "shares": 50}}
+        ]
+    }}
+    """
     
     try:
         logging.info("Sending request to OpenAI for portfolio analysis...")
@@ -405,8 +405,8 @@ def main():
         st.subheader("👥 Registered Users")
         users = get_all_users_from_sheets()
         if users:
-            for user in users:
-                with st.expander(f"📧 {user['email']}"):
+        for user in users:
+            with st.expander(f"📧 {user['email']}"):
                     st.write(f"**Last Updated:** {user.get('last_updated', 'N/A')}")
                     st.write("**Holdings:**", user.get('holdings', {}))
         else:
@@ -481,8 +481,8 @@ def main():
                     update_progress(1, 6, "Reading uploaded file...")
                     
                     try:
-                        file_bytes = uploaded_file.read()
-                        file_type = uploaded_file.name.split('.')[-1].lower()
+                    file_bytes = uploaded_file.read()
+                    file_type = uploaded_file.name.split('.')[-1].lower()
                         with log_container:
                             st.info(f"📁 File: {uploaded_file.name} ({uploaded_file.size} bytes)")
                             st.info(f"📋 Type: {file_type}")
@@ -516,7 +516,7 @@ def main():
                         with log_container:
                             st.info(f"📊 Excel data extracted: {df.shape[0]} rows, {df.shape[1]} columns")
                             st.info(f"📄 Content length: {len(content)} characters")
-                    
+
                     if not content:
                         st.error("❌ Could not read content from the uploaded file.")
                         st.error("Please check that the file contains readable data.")
@@ -527,14 +527,14 @@ def main():
                     with log_container:
                         st.info("🤖 Sending content to OpenAI for analysis...")
                     
-                    holdings = extract_portfolio_with_ai(content, file_type)
+                        holdings = extract_portfolio_with_ai(content, file_type)
                     
                     with log_container:
                         if holdings:
                             st.success(f"✅ AI analysis complete! Found {len(holdings)} holdings:")
                             for ticker, shares in holdings.items():
                                 st.info(f"   • {ticker}: {shares} shares")
-                        else:
+                            else:
                             st.warning("⚠️ AI analysis found no valid holdings")
                     
                     if not holdings:
