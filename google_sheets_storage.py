@@ -15,11 +15,11 @@ def get_google_sheets_client():
     """Initialize Google Sheets API client."""
     try:
         logging.info("Initializing Google Sheets client...")
-    creds = service_account.Credentials.from_service_account_info(
-        st.secrets["sheets_credentials"],
-        scopes=['https://www.googleapis.com/auth/spreadsheets']
-    )
-    service = build('sheets', 'v4', credentials=creds)
+        creds = service_account.Credentials.from_service_account_info(
+            st.secrets["sheets_credentials"],
+            scopes=['https://www.googleapis.com/auth/spreadsheets']
+        )
+        service = build('sheets', 'v4', credentials=creds)
         sheets = service.spreadsheets()
         logging.info("Google Sheets client initialized successfully")
         return sheets
@@ -153,4 +153,4 @@ def get_all_users_from_sheets() -> List[Dict[str, Any]]:
         return list(users.values())
     except Exception as e:
         logging.error(f"Error getting users from Google Sheets: {e}")
-        return []
+        return [] 
