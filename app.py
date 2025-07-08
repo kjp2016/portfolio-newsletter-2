@@ -127,22 +127,22 @@ def extract_portfolio_with_ai(content: str, file_type: str) -> Dict[str, float]:
         - Only include valid stock symbols (3-5 letters)
         """
     else:
-    prompt = f"""
-    Analyze the following {file_type} content and extract stock portfolio information.
-    Extract all stock tickers and the number of shares held. Look for:
-    - Stock symbols (like AAPL, MSFT, GOOGL, etc.)
-    - Company names that can be mapped to tickers
-    - Number of shares, quantities, or positions
-    Content:
-    {content[:4000]}
-    Return the data as a JSON object with this exact format:
-    {{
-        "holdings": [
-            {{"ticker": "AAPL", "shares": 100}},
-            {{"ticker": "MSFT", "shares": 50}}
-        ]
-    }}
-    """
+        prompt = f"""
+        Analyze the following {file_type} content and extract stock portfolio information.
+        Extract all stock tickers and the number of shares held. Look for:
+        - Stock symbols (like AAPL, MSFT, GOOGL, etc.)
+        - Company names that can be mapped to tickers
+        - Number of shares, quantities, or positions
+        Content:
+        {content[:4000]}
+        Return the data as a JSON object with this exact format:
+        {{
+            "holdings": [
+                {{"ticker": "AAPL", "shares": 100}},
+                {{"ticker": "MSFT", "shares": 50}}
+            ]
+        }}
+        """
     
     try:
         logging.info("Sending request to OpenAI for portfolio analysis...")
