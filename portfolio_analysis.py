@@ -28,24 +28,25 @@ client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def get_batch_stock_data(tickers: Tuple[str, ...]) -> Dict[str, Dict[str, Any]]:
     """
-    Fetch current stock prices and company names using the hybrid finance service.
+    Fetch current stock prices using Alpha Vantage API directly.
     """
     if not tickers:
         return {}
     
-    service = get_hybrid_finance_service()
+    from alpha_vantage_service import get_alpha_vantage_service
+    service = get_alpha_vantage_service()
     return service.get_current_prices(tickers)
 
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def get_batch_price_performance(tickers: Tuple[str, ...], start_date: pd.Timestamp, end_date: pd.Timestamp, period_name: str = "period") -> Dict[str, Dict[str, Any]]:
     """
-    Fetches historical price performance for multiple tickers using the hybrid finance service.
-    Uses Yahoo Finance for current prices and generates realistic historical estimates.
+    Fetches historical price performance for multiple tickers using Alpha Vantage API directly.
     """
     if not tickers:
         return {}
 
-    service = get_hybrid_finance_service()
+    from alpha_vantage_service import get_alpha_vantage_service
+    service = get_alpha_vantage_service()
     return service.get_batch_price_performance(tickers, start_date, end_date, period_name)
 
 def build_prompt_for_holding(price_block: dict, long_name: str) -> str:

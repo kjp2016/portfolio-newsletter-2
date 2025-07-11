@@ -19,6 +19,7 @@ from portfolio_analysis import (
     gpt_paragraph_for_holding
 )
 from market_recap import generate_market_recap_with_search
+from hybrid_finance_service import get_hybrid_finance_service
 
 # --- Logging Configuration ---
 logging.basicConfig(
@@ -50,24 +51,56 @@ def get_overall_portfolio_performance(
     period: str,
     holdings: Optional[Dict[str, float]] = None
 ) -> Dict[str, Any]:
-    """Calculates overall portfolio performance using batch data."""
+    """Calculates overall portfolio performance using batch data with failure handling."""
     today = pd.Timestamp.utcnow()
     start_date = today - timedelta(days=7) if period == "weekly" else today.replace(month=1, day=1).normalize()
 
-    all_perf_data = get_batch_price_performance(portfolio_tickers, start_date, today, period_name=period)
+    # Use the improved method that reports failures
+    service = get_hybrid_finance_service()
+    if hasattr(service.alpha_vantage_service, 'get_portfolio_performance_with_failures'):
+        result = service.alpha_vantage_service.get_portfolio_performance_with_failures(
+            portfolio_tickers, start_date, today, period_name=period
+        )
+        all_perf_data = result["performance_data"]
+        failed_tickers = result["failed_tickers"]
+        success_rate = result["success_rate"]
+        
+        # Log failure summary
+        if failed_tickers:
+            logging.warning(f"Portfolio calculation: {len(failed_tickers)} tickers failed ({success_rate:.1f}% success rate)")
+            logging.warning(f"Failed tickers: {', '.join(failed_tickers)}")
+            
+            # If too many failures, warn about accuracy
+            if success_rate < 80.0:
+                logging.warning(f"Low success rate ({success_rate:.1f}%) - portfolio performance may be inaccurate")
+    else:
+        # Fallback to original method
+        all_perf_data = get_batch_price_performance(portfolio_tickers, start_date, today, period_name=period)
+        failed_tickers = []
+
     valid_performances = [p for p in all_perf_data.values() if 'error' not in p]
 
     if not valid_performances:
-        return {"overall_change_pct": 0.0, "major_movers": []}
+        logging.error("No valid performance data available for portfolio calculation")
+        return {"overall_change_pct": 0.0, "major_movers": [], "failed_tickers": failed_tickers, "success_rate": 0.0}
 
     # Use weighted average if holdings are provided, otherwise use a simple average
     if holdings:
         total_value_start, total_value_end = 0, 0
+        valid_holdings = 0
         for perf in valid_performances:
             shares = holdings.get(perf['ticker'], 0)
-            total_value_start += perf['first_close'] * shares
-            total_value_end += perf['last_close'] * shares
-        overall_change_pct = ((total_value_end - total_value_start) / total_value_start) * 100 if total_value_start > 0 else 0.0
+            if shares > 0:
+                total_value_start += perf['first_close'] * shares
+                total_value_end += perf['last_close'] * shares
+                valid_holdings += 1
+        
+        if total_value_start > 0:
+            overall_change_pct = ((total_value_end - total_value_start) / total_value_start) * 100
+            logging.info(f"Portfolio calculation: {valid_holdings} holdings with valid data, total value change: {overall_change_pct:.2f}%")
+        else:
+            overall_change_pct = 0.0
+            logging.warning("No valid holdings with shares > 0 for portfolio calculation")
     else:
         total_pct_change = sum(p['pct_change'] for p in valid_performances)
         overall_change_pct = total_pct_change / len(valid_performances) if valid_performances else 0.0
@@ -79,17 +112,30 @@ def get_overall_portfolio_performance(
         for mover in sorted_by_impact[:2]:
             major_movers.append(f"{mover['ticker']} ({mover['pct_change']:.2f}%)")
 
-    return {"overall_change_pct": overall_change_pct, "major_movers": major_movers}
+    return {
+        "overall_change_pct": overall_change_pct, 
+        "major_movers": major_movers,
+        "failed_tickers": failed_tickers,
+        "success_rate": success_rate if 'success_rate' in locals() else 100.0,
+        "valid_holdings_count": len(valid_performances)
+    }
 
 
-def generate_holdings_blocks(portfolio_tickers: Tuple[str, ...]) -> List[dict]:
-    """Generates analysis paragraphs for each holding using batch data, limited to top 5 movers."""
+def generate_holdings_blocks(portfolio_tickers: Tuple[str, ...], existing_perf_data: Optional[Dict[str, Any]] = None) -> List[dict]:
+    """Generates analysis paragraphs for each holding using existing data or fetching new data, limited to top 5 movers."""
     today = pd.Timestamp.utcnow()
     week_ago = today - timedelta(days=7)  # Use weekly period for individual stock analysis
 
-    # Fetch all data in batches first
+    # Use existing performance data if provided, otherwise fetch new data
+    if existing_perf_data:
+        price_data_weekly = existing_perf_data
+        logging.info("Using existing performance data for holdings analysis")
+    else:
+        # Fetch all data in batches first
+        price_data_weekly = get_batch_price_performance(portfolio_tickers, week_ago, today, period_name="weekly")
+
+    # Fetch company data (this is separate and needed for company names)
     company_data = get_batch_stock_data(portfolio_tickers)
-    price_data_weekly = get_batch_price_performance(portfolio_tickers, week_ago, today, period_name="weekly")
 
     # Filter and sort by absolute percentage change to get top 5 movers
     valid_price_data = []
@@ -179,6 +225,14 @@ def generate_newsletter_for_user(email: str, holdings: Dict[str, float]) -> bool
     overall_weekly_change_pct = weekly_perf.get('overall_change_pct', 0.0)
     major_movers = weekly_perf.get('major_movers', [])
     overall_ytd_change_pct = ytd_perf.get('overall_change_pct', 0.0)
+    
+    # Check for data quality issues
+    weekly_failed_tickers = weekly_perf.get('failed_tickers', [])
+    weekly_success_rate = weekly_perf.get('success_rate', 100.0)
+    
+    if weekly_success_rate < 80.0:
+        logging.warning(f"Low data quality for {email}: {weekly_success_rate:.1f}% success rate")
+        logging.warning(f"Failed tickers: {', '.join(weekly_failed_tickers)}")
 
     # --- SKIP EMAIL IF PORTFOLIO DROPS MORE THAN 5% ---
     if overall_weekly_change_pct < -5.0:
@@ -187,7 +241,10 @@ def generate_newsletter_for_user(email: str, holdings: Dict[str, float]) -> bool
 
     # --- 2. Generate AI Content ---
     market_block_md = generate_market_recap_with_search(list(tickers_tuple))
-    holdings_blocks = generate_holdings_blocks(tickers_tuple)
+    
+    # Pass the existing performance data to avoid duplicate API calls
+    weekly_perf_data = weekly_perf.get('performance_data', {}) if 'performance_data' in weekly_perf else None
+    holdings_blocks = generate_holdings_blocks(tickers_tuple, weekly_perf_data)
 
     # --- 3. Build Email Text ---
     weekly_direction = "increased" if overall_weekly_change_pct >= 0 else "decreased"
