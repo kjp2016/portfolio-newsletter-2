@@ -175,17 +175,8 @@ def extract_portfolio_with_ai(content: str, file_type: str) -> Dict[str, float]:
             logging.warning("No potential holdings found in AI response")
             return {}
 
-        logging.info("Validating tickers with stock price data...")
-        valid_tickers_data = get_batch_stock_data(tuple(potential_holdings.keys()))
-        logging.info(f"Stock price validation results: {valid_tickers_data}")
-        
-        final_holdings = {
-            ticker: shares for ticker, shares in potential_holdings.items()
-            if ticker in valid_tickers_data and valid_tickers_data[ticker].get('current_price') is not None
-        }
-        
-        logging.info(f"Final validated holdings: {final_holdings}")
-        return final_holdings
+        logging.info(f"Returning extracted holdings without price validation: {potential_holdings}")
+        return potential_holdings
         
     except Exception as e:
         logging.error(f"Error extracting portfolio with AI: {e}", exc_info=True)
@@ -405,8 +396,8 @@ def main():
         st.subheader("👥 Registered Users")
         users = get_all_users_from_sheets()
         if users:
-        for user in users:
-            with st.expander(f"📧 {user['email']}"):
+            for user in users:
+                with st.expander(f"📧 {user['email']}"):
                     st.write(f"**Last Updated:** {user.get('last_updated', 'N/A')}")
                     st.write("**Holdings:**", user.get('holdings', {}))
         else:
@@ -478,11 +469,11 @@ def main():
                                 st.info(f"🔄 {message}")
                     
                     # Step 1: File Processing
-                    update_progress(1, 6, "Reading uploaded file...")
+                    update_progress(1, 4, "Reading uploaded file...")
                     
                     try:
-                    file_bytes = uploaded_file.read()
-                    file_type = uploaded_file.name.split('.')[-1].lower()
+                        file_bytes = uploaded_file.read()
+                        file_type = uploaded_file.name.split('.')[-1].lower()
                         with log_container:
                             st.info(f"📁 File: {uploaded_file.name} ({uploaded_file.size} bytes)")
                             st.info(f"📋 Type: {file_type}")
@@ -493,7 +484,7 @@ def main():
                         return
                     
                     # Step 2: Content Extraction
-                    update_progress(2, 6, "Extracting content from file...")
+                    update_progress(2, 4, "Extracting content from file...")
                     content = ""
                     if file_type == 'pdf':
                         content = extract_text_from_pdf(file_bytes)
@@ -523,18 +514,18 @@ def main():
                         return
                     
                     # Step 3: AI Analysis
-                    update_progress(3, 6, "Analyzing portfolio with AI...")
+                    update_progress(3, 4, "Analyzing portfolio with AI...")
                     with log_container:
                         st.info("🤖 Sending content to OpenAI for analysis...")
                     
-                        holdings = extract_portfolio_with_ai(content, file_type)
+                    holdings = extract_portfolio_with_ai(content, file_type)
                     
                     with log_container:
                         if holdings:
                             st.success(f"✅ AI analysis complete! Found {len(holdings)} holdings:")
                             for ticker, shares in holdings.items():
                                 st.info(f"   • {ticker}: {shares} shares")
-                            else:
+                        else:
                             st.warning("⚠️ AI analysis found no valid holdings")
                     
                     if not holdings:
@@ -545,41 +536,19 @@ def main():
                         st.info("   • The document format is not supported")
                         return
                     
-                    # Step 4: Stock Price Validation
-                    update_progress(4, 6, "Validating stock tickers and fetching prices...")
-                    with log_container:
-                        st.info("💰 Fetching current stock prices to validate tickers...")
-                    
-                    ticker_list = tuple(holdings.keys())
-                    stock_data = get_batch_stock_data(ticker_list)
-                    valid_holdings = {}
-                    
-                    for ticker, shares in holdings.items():
-                        if ticker in stock_data and stock_data[ticker].get('current_price') is not None:
-                            valid_holdings[ticker] = shares
-                            with log_container:
-                                st.info(f"✅ {ticker}: ${stock_data[ticker]['current_price']:.2f}")
-                        else:
-                            with log_container:
-                                st.warning(f"⚠️ {ticker}: Invalid ticker or price unavailable")
-                    
-                    if not valid_holdings:
-                        st.error("❌ No valid stock tickers found after price validation.")
-                        return
-                    
-                    # Step 5: Google Sheets Save
-                    update_progress(5, 6, "Saving portfolio to database...")
+                    # Step 4: Google Sheets Save
+                    update_progress(4, 4, "Saving portfolio to database...")
                     with log_container:
                         st.info("💾 Saving portfolio data to Google Sheets...")
                     
-                    if save_user_portfolio_to_sheets(email, valid_holdings):
-                        # Step 6: Complete
-                        update_progress(6, 6, "Portfolio processing complete!")
+                    if save_user_portfolio_to_sheets(email, holdings):
+                        # Complete
+                        update_progress(4, 4, "Portfolio processing complete!")
                         with log_container:
                             st.success("🎉 Portfolio saved successfully!")
                         
                         # Store in session state and refresh
-                        st.session_state['current_holdings'] = valid_holdings
+                        st.session_state['current_holdings'] = holdings
                         st.session_state['current_email'] = email
                         
                         # Show success message
@@ -610,33 +579,50 @@ def main():
 
             ticker_list = tuple(holdings.keys())
             if ticker_list:
-                portfolio_details = get_batch_stock_data(ticker_list)
+                # Show basic holdings without prices
                 portfolio_data = []
-                total_value = 0
                 for ticker, shares in holdings.items():
-                    details = portfolio_details.get(ticker)
-                    if details and details.get('current_price') is not None:
-                        current_price = details.get('current_price', 0)
-                        value = current_price * shares
-                        total_value += value
-                        portfolio_data.append({
-                            'Ticker': ticker,
-                            'Company': details.get('company_name', ticker),
-                            'Shares': shares,
-                            'Current Price': f"${current_price:.2f}",
-                            'Value': f"${value:,.2f}"
-                        })
+                    portfolio_data.append({
+                        'Ticker': ticker,
+                        'Shares': shares
+                    })
                 
                 df = pd.DataFrame(portfolio_data)
                 st.dataframe(df, use_container_width=True)
                 
-                # Enhanced total value display
-                st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-                st.metric("💰 Total Portfolio Value", f"${total_value:,.2f}")
-                st.markdown('</div>', unsafe_allow_html=True)
+                # Add button to load current prices if user wants to see portfolio value
+                if st.button("💰 Load Current Prices", use_container_width=True, key="load_prices"):
+                    with st.spinner("Fetching current prices..."):
+                        portfolio_details = get_batch_stock_data(ticker_list)
+                        portfolio_data_with_prices = []
+                        total_value = 0
+                        for ticker, shares in holdings.items():
+                            details = portfolio_details.get(ticker)
+                            if details and details.get('current_price') is not None:
+                                current_price = details.get('current_price', 0)
+                                value = current_price * shares
+                                total_value += value
+                                portfolio_data_with_prices.append({
+                                    'Ticker': ticker,
+                                    'Company': details.get('company_name', ticker),
+                                    'Shares': shares,
+                                    'Current Price': f"${current_price:.2f}",
+                                    'Value': f"${value:,.2f}"
+                                })
+                        
+                        if portfolio_data_with_prices:
+                            df_with_prices = pd.DataFrame(portfolio_data_with_prices)
+                            st.dataframe(df_with_prices, use_container_width=True)
+                            
+                            # Enhanced total value display
+                            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+                            st.metric("💰 Total Portfolio Value", f"${total_value:,.2f}")
+                            st.markdown('</div>', unsafe_allow_html=True)
+                        else:
+                            st.warning("⚠️ Could not fetch current prices for any holdings")
 
             if st.button("📬 Send Test Newsletter", use_container_width=True, key="send_test_newsletter"):
-                with st.spinner("Generating and sending your newsletter..."):
+                with st.spinner(f"Generating and sending newsletter to {email}..."):
                     if generate_newsletter_for_user(email, holdings):
                         st.success(f"✅ Newsletter sent to {email}!")
                     else:
