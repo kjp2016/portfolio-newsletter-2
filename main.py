@@ -49,34 +49,38 @@ TEMPLATE_DIR = "./templates"
 def get_overall_portfolio_performance(
     portfolio_tickers: Tuple[str, ...],
     period: str,
-    holdings: Optional[Dict[str, float]] = None
+    holdings: Optional[Dict[str, float]] = None,
+    existing_perf_data: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """Calculates overall portfolio performance using batch data with failure handling."""
     today = pd.Timestamp.utcnow()
     start_date = today - timedelta(days=7) if period == "weekly" else today.replace(month=1, day=1).normalize()
 
-    # Use the improved method that reports failures
-    service = get_hybrid_finance_service()
-    if hasattr(service.alpha_vantage_service, 'get_portfolio_performance_with_failures'):
-        result = service.alpha_vantage_service.get_portfolio_performance_with_failures(
-            portfolio_tickers, start_date, today, period_name=period
-        )
-        all_perf_data = result["performance_data"]
-        failed_tickers = result["failed_tickers"]
-        success_rate = result["success_rate"]
-        
-        # Log failure summary
-        if failed_tickers:
-            logging.warning(f"Portfolio calculation: {len(failed_tickers)} tickers failed ({success_rate:.1f}% success rate)")
-            logging.warning(f"Failed tickers: {', '.join(failed_tickers)}")
-            
-            # If too many failures, warn about accuracy
-            if success_rate < 80.0:
-                logging.warning(f"Low success rate ({success_rate:.1f}%) - portfolio performance may be inaccurate")
+    # Use existing performance data if provided, otherwise fetch new data
+    if existing_perf_data:
+        all_perf_data = existing_perf_data
+        logging.info(f"REUSING existing performance data for {period} calculation ({len(existing_perf_data)} tickers)")
     else:
-        # Fallback to original method
-        all_perf_data = get_batch_price_performance(portfolio_tickers, start_date, today, period_name=period)
-        failed_tickers = []
+        # Use Alpha Vantage directly for efficiency
+        logging.info(f"FETCHING NEW performance data for {period} calculation ({len(portfolio_tickers)} tickers)")
+        from alpha_vantage_service import get_alpha_vantage_service
+        service = get_alpha_vantage_service()
+        if hasattr(service, 'get_portfolio_performance_with_failures'):
+            result = service.get_portfolio_performance_with_failures(
+                portfolio_tickers, start_date, today, period_name=period
+            )
+            all_perf_data = result["performance_data"]
+            failed_tickers = result["failed_tickers"]
+            success_rate = result["success_rate"]
+        else:
+            # Fallback to batch method
+            all_perf_data = get_batch_price_performance(portfolio_tickers, start_date, today, period_name=period)
+            failed_tickers = []
+            success_rate = 100.0
+
+    # Calculate failed tickers and success rate
+    failed_tickers = [ticker for ticker, data in all_perf_data.items() if 'error' in data]
+    success_rate = ((len(portfolio_tickers) - len(failed_tickers)) / len(portfolio_tickers)) * 100 if portfolio_tickers else 0.0
 
     valid_performances = [p for p in all_perf_data.values() if 'error' not in p]
 
@@ -112,16 +116,26 @@ def get_overall_portfolio_performance(
         for mover in sorted_by_impact[:2]:
             major_movers.append(f"{mover['ticker']} ({mover['pct_change']:.2f}%)")
 
+    # Log failure summary
+    if failed_tickers:
+        logging.warning(f"Portfolio calculation: {len(failed_tickers)} tickers failed ({success_rate:.1f}% success rate)")
+        logging.warning(f"Failed tickers: {', '.join(failed_tickers)}")
+        
+        # If too many failures, warn about accuracy
+        if success_rate < 80.0:
+            logging.warning(f"Low success rate ({success_rate:.1f}%) - portfolio performance may be inaccurate")
+
     return {
         "overall_change_pct": overall_change_pct, 
         "major_movers": major_movers,
         "failed_tickers": failed_tickers,
-        "success_rate": success_rate if 'success_rate' in locals() else 100.0,
-        "valid_holdings_count": len(valid_performances)
+        "success_rate": success_rate,
+        "valid_holdings_count": len(valid_performances),
+        "performance_data": all_perf_data  # Include the raw performance data for reuse
     }
 
 
-def generate_holdings_blocks(portfolio_tickers: Tuple[str, ...], existing_perf_data: Optional[Dict[str, Any]] = None) -> List[dict]:
+def generate_holdings_blocks(portfolio_tickers: Tuple[str, ...], existing_perf_data: Optional[Dict[str, Any]] = None, existing_company_data: Optional[Dict[str, Any]] = None) -> List[dict]:
     """Generates analysis paragraphs for each holding using existing data or fetching new data, limited to top 5 movers."""
     today = pd.Timestamp.utcnow()
     week_ago = today - timedelta(days=7)  # Use weekly period for individual stock analysis
@@ -129,13 +143,20 @@ def generate_holdings_blocks(portfolio_tickers: Tuple[str, ...], existing_perf_d
     # Use existing performance data if provided, otherwise fetch new data
     if existing_perf_data:
         price_data_weekly = existing_perf_data
-        logging.info("Using existing performance data for holdings analysis")
+        logging.info(f"REUSING existing performance data for {len(existing_perf_data)} tickers")
     else:
         # Fetch all data in batches first
+        logging.info(f"FETCHING NEW performance data for {len(portfolio_tickers)} tickers")
         price_data_weekly = get_batch_price_performance(portfolio_tickers, week_ago, today, period_name="weekly")
 
-    # Fetch company data (this is separate and needed for company names)
-    company_data = get_batch_stock_data(portfolio_tickers)
+    # Use existing company data if provided, otherwise fetch new data
+    if existing_company_data:
+        company_data = existing_company_data
+        logging.info(f"REUSING existing company data for {len(existing_company_data)} tickers")
+    else:
+        # Fetch company data (this is separate and needed for company names)
+        logging.info(f"FETCHING NEW company data for {len(portfolio_tickers)} tickers")
+        company_data = get_batch_stock_data(portfolio_tickers)
 
     # Filter and sort by absolute percentage change to get top 5 movers
     valid_price_data = []
@@ -210,6 +231,7 @@ def send_gmail(subject: str, html_body: str, txt_body: str, recipients: List[str
 def generate_newsletter_for_user(email: str, holdings: Dict[str, float]) -> bool:
     """
     This is the main orchestrator function. It generates and sends a single newsletter.
+    Optimized to fetch data once and reuse it throughout the process.
     """
     if not holdings:
         logging.warning(f"No holdings found for {email}. Skipping newsletter.")
@@ -218,9 +240,25 @@ def generate_newsletter_for_user(email: str, holdings: Dict[str, float]) -> bool
     tickers_tuple = tuple(holdings.keys())
     subject = f"Your Weekly Portfolio Pulse – {datetime.utcnow():%b %d, %Y}"
 
-    # --- 1. Get Performance Stats ---
+    # --- 1. Fetch All Data Once ---
+    logging.info(f"=== Starting newsletter generation for {email} ===")
+    logging.info(f"Fetching all data for {len(tickers_tuple)} tickers...")
+    
+    # Fetch weekly performance data once
+    logging.info("Step 1: Fetching weekly performance data...")
     weekly_perf = get_overall_portfolio_performance(tickers_tuple, "weekly", holdings)
-    ytd_perf = get_overall_portfolio_performance(tickers_tuple, "ytd", holdings)
+    weekly_perf_data = weekly_perf.get('performance_data', {})
+    logging.info(f"Step 1 complete: Got performance data for {len([k for k, v in weekly_perf_data.items() if 'error' not in v])}/{len(tickers_tuple)} tickers")
+    
+    # Fetch YTD performance data (reuse weekly data if possible, otherwise fetch separately)
+    logging.info("Step 2: Fetching YTD performance data...")
+    ytd_perf = get_overall_portfolio_performance(tickers_tuple, "ytd", holdings, existing_perf_data=weekly_perf_data)
+    logging.info(f"Step 2 complete: YTD calculation done")
+    
+    # Fetch company data once for reuse
+    logging.info("Step 3: Fetching company data...")
+    company_data = get_batch_stock_data(tickers_tuple)
+    logging.info(f"Step 3 complete: Got company data for {len([k for k, v in company_data.items() if v.get('current_price')])}/{len(tickers_tuple)} tickers")
     
     overall_weekly_change_pct = weekly_perf.get('overall_change_pct', 0.0)
     major_movers = weekly_perf.get('major_movers', [])
@@ -240,11 +278,14 @@ def generate_newsletter_for_user(email: str, holdings: Dict[str, float]) -> bool
         return False
 
     # --- 2. Generate AI Content ---
+    logging.info("Step 4: Generating market recap...")
     market_block_md = generate_market_recap_with_search(list(tickers_tuple))
+    logging.info("Step 4 complete: Market recap generated")
     
-    # Pass the existing performance data to avoid duplicate API calls
-    weekly_perf_data = weekly_perf.get('performance_data', {}) if 'performance_data' in weekly_perf else None
-    holdings_blocks = generate_holdings_blocks(tickers_tuple, weekly_perf_data)
+    # Generate holdings blocks using existing data to avoid duplicate API calls
+    logging.info("Step 5: Generating holdings analysis using existing data...")
+    holdings_blocks = generate_holdings_blocks(tickers_tuple, weekly_perf_data, company_data)
+    logging.info(f"Step 5 complete: Generated analysis for {len(holdings_blocks)} holdings")
 
     # --- 3. Build Email Text ---
     weekly_direction = "increased" if overall_weekly_change_pct >= 0 else "decreased"
@@ -261,9 +302,11 @@ def generate_newsletter_for_user(email: str, holdings: Dict[str, float]) -> bool
     intro_summary_html = markdown2.markdown(intro_summary_text.replace('\n', '<br>'))
 
     # --- 4. Render and Send Email ---
+    logging.info("Step 6: Rendering and sending email...")
     html_body, txt_body = render_email(subject, intro_summary_html, intro_summary_text, market_block_md, holdings_blocks)
     send_gmail(subject, html_body, txt_body, recipients=[email])
     
+    logging.info(f"=== Newsletter generation complete for {email} ===")
     return True
 
 
