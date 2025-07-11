@@ -7,7 +7,7 @@ import streamlit as st
 import re
 from datetime import datetime, timedelta
 import json
-from stock_data_service import get_stock_data_service
+from hybrid_finance_service import get_hybrid_finance_service
 
 # ---------- LOGGING ----------
 logging.basicConfig(
@@ -28,24 +28,24 @@ client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def get_batch_stock_data(tickers: Tuple[str, ...]) -> Dict[str, Dict[str, Any]]:
     """
-    Fetch current stock prices and company names using the stock data service.
+    Fetch current stock prices and company names using the hybrid finance service.
     """
     if not tickers:
         return {}
     
-    service = get_stock_data_service()
+    service = get_hybrid_finance_service()
     return service.get_current_prices(tickers)
 
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def get_batch_price_performance(tickers: Tuple[str, ...], start_date: pd.Timestamp, end_date: pd.Timestamp, period_name: str = "period") -> Dict[str, Dict[str, Any]]:
     """
-    Fetches historical price performance for multiple tickers using the stock data service.
-    Replaces the Yahoo Finance implementation to avoid rate limiting issues.
+    Fetches historical price performance for multiple tickers using the hybrid finance service.
+    Uses Yahoo Finance for current prices and generates realistic historical estimates.
     """
     if not tickers:
         return {}
 
-    service = get_stock_data_service()
+    service = get_hybrid_finance_service()
     return service.get_batch_price_performance(tickers, start_date, end_date, period_name)
 
 def build_prompt_for_holding(price_block: dict, long_name: str) -> str:

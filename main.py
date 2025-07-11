@@ -200,6 +200,7 @@ def generate_newsletter_for_user(email: str, holdings: Dict[str, float]) -> bool
         f"The broader market conditions and specific news affecting your holdings are detailed in the Market Recap below.\n"
         f"Year to date, your portfolio is {ytd_direction} {abs(overall_ytd_change_pct):.2f}%."
     )
+
     intro_summary_html = markdown2.markdown(intro_summary_text.replace('\n', '<br>'))
 
     # --- 4. Render and Send Email ---
