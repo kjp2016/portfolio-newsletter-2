@@ -12,5 +12,6 @@ google-api-python-client==2.93.0
 markdown2==2.4.10
 jinja2==3.1.2
 toml==0.10.2
-twelvedata==1.0.0
 requests>=2.25.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0

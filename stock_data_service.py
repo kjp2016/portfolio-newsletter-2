@@ -32,9 +32,9 @@ class StockDataService:
         self.api_key = twelve_data_api_key
         self.td_client = TDClient(apikey=self.api_key)
         
-        # Rate limiting settings
+        # Rate limiting settings - Twelve Data allows 800 calls/day, so be conservative
         self.calls_per_minute = 8  # Conservative limit
-        self.calls_per_second = 2
+        self.calls_per_second = 1  # One call per second max
         self.last_call_time = 0
         self.call_count = 0
         self.last_reset_time = time.time()
@@ -214,7 +214,6 @@ IMPORTANT:
                             response_text += content.output_text
             
             # Try to parse JSON from the response
-            import re
             json_match = re.search(r'\{[^}]*"price"[^}]*\}', response_text)
             if json_match:
                 try:
@@ -282,7 +281,6 @@ IMPORTANT:
                             response_text += content.output_text
             
             # Try to parse JSON from the response
-            import re
             json_match = re.search(r'\{[^}]*"start_price"[^}]*\}', response_text)
             if json_match:
                 try:
@@ -324,7 +322,7 @@ IMPORTANT:
         """
         if not tickers:
             return {}
-
+        
         # First, get current prices (end_date)
         current_prices = self.get_current_prices(tickers)
         
@@ -431,18 +429,13 @@ IMPORTANT:
         logging.info(f"Validated {len(valid_tickers)} out of {len(tickers)} tickers")
         return valid_tickers
 
-# Global instance for use across the application
 def get_stock_data_service() -> StockDataService:
-    """Get the global stock data service instance."""
-    try:
-        if 'stock_data_service' not in st.session_state:
-            client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-            st.session_state['stock_data_service'] = StockDataService(client)
-        return st.session_state['stock_data_service']
-    except (AttributeError, KeyError):
-        # Fallback for non-Streamlit environments
-        from dotenv import load_dotenv
-        import os
-        load_dotenv()
-        client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-        return StockDataService(client) 
+    """
+    Get or create a StockDataService instance with proper initialization.
+    """
+    if 'stock_data_service' not in st.session_state:
+        # Initialize with OpenAI client and Twelve Data API key
+        client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+        st.session_state['stock_data_service'] = StockDataService(client)
+    
+    return st.session_state['stock_data_service'] 

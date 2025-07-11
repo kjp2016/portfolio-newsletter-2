@@ -168,11 +168,11 @@ class AlphaVantageService:
                     logging.info(f"Using cached price for {ticker}: ${cache_price}")
                     return cache_price
             
-            # Try original ticker first
-            time_series = self._safe_series(ticker)
+            # Try ticker variations first (more likely to work)
+            time_series = self._try_ticker_variations(ticker)
             if not time_series:
-                # Try ticker variations
-                time_series = self._try_ticker_variations(ticker)
+                # Fallback to original ticker
+                time_series = self._safe_series(ticker)
                 if not time_series:
                     return None
             
@@ -206,11 +206,11 @@ class AlphaVantageService:
                     logging.info(f"Using cached historical data for {ticker}")
                     return cache_data
             
-            # Try original ticker first
-            time_series = self._safe_series(ticker)
+            # Try ticker variations first (more likely to work)
+            time_series = self._try_ticker_variations(ticker)
             if not time_series:
-                # Try ticker variations
-                time_series = self._try_ticker_variations(ticker)
+                # Fallback to original ticker
+                time_series = self._safe_series(ticker)
                 if not time_series:
                     return None
             
