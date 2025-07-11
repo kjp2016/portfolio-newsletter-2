@@ -96,6 +96,88 @@ def extract_data_from_excel(file_bytes: bytes) -> pd.DataFrame:
         logging.error(f"Error extracting data from Excel: {e}", exc_info=True)
         return pd.DataFrame()
 
+def validate_and_normalize_tickers(tickers: List[str]) -> Dict[str, str]:
+    """
+    Use AI to validate and normalize ticker symbols for Alpha Vantage compatibility.
+    Returns a mapping of original ticker to normalized ticker.
+    """
+    if not tickers:
+        return {}
+    
+    prompt = f"""
+    You are a financial data expert specializing in stock ticker validation and normalization for the Alpha Vantage API.
+
+    I have the following stock tickers that need to be validated and normalized for Alpha Vantage:
+    {tickers}
+
+    IMPORTANT ALPHA VANTAGE RULES:
+    1. Alpha Vantage does NOT support dots (.) in ticker symbols
+    2. For tickers with dots, use hyphens (-) instead (e.g., BRK.B → BRK-B)
+    3. Some tickers may need to be corrected to their proper symbols
+    4. Convert all tickers to uppercase
+    5. Remove any extra spaces or special characters
+
+    COMMON CORRECTIONS:
+    - BRKB → BRK-B (Berkshire Hathaway Class B)
+    - BRKA → BRK-A (Berkshire Hathaway Class A)
+    - GOOGL → GOOGL (Alphabet Inc.)
+    - GOOG → GOOG (Alphabet Inc. Class C)
+
+    For each ticker, determine:
+    1. Is it a valid stock ticker?
+    2. What is the correct Alpha Vantage format?
+    3. If the ticker is invalid or unknown, mark it as such
+
+    Return ONLY a JSON object with this exact format:
+    {{
+        "ticker_mappings": {{
+            "ORIGINAL_TICKER": "NORMALIZED_TICKER",
+            "BRKB": "BRK-B",
+            "INVALID_TICKER": null
+        }},
+        "corrections": [
+            {{
+                "original": "BRKB",
+                "corrected": "BRK-B",
+                "reason": "Berkshire Hathaway Class B uses BRK-B in Alpha Vantage"
+            }}
+        ]
+    }}
+
+    Only include tickers that need correction or are invalid. If a ticker is already correct, don't include it in corrections.
+    """
+    
+    try:
+        logging.info(f"Validating and normalizing {len(tickers)} tickers...")
+        response = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[
+                {"role": "system", "content": "You are a financial data expert specializing in stock ticker validation and normalization for the Alpha Vantage API. Always return valid JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.1,
+            response_format={"type": "json_object"}
+        )
+        
+        content = response.choices[0].message.content
+        if content is None:
+            logging.error("OpenAI returned None content for ticker validation")
+            return {}
+        
+        result = json.loads(content)
+        ticker_mappings = result.get("ticker_mappings", {})
+        corrections = result.get("corrections", [])
+        
+        # Log corrections
+        if corrections:
+            logging.info(f"Ticker corrections made: {corrections}")
+        
+        return ticker_mappings
+        
+    except Exception as e:
+        logging.error(f"Error validating tickers: {e}", exc_info=True)
+        return {}
+
 def extract_portfolio_with_ai(content: str, file_type: str) -> Dict[str, float]:
     """Use GPT to extract portfolio holdings and validate tickers in a batch."""
     logging.info(f"Starting AI portfolio extraction for {file_type} file...")
@@ -164,19 +246,44 @@ def extract_portfolio_with_ai(content: str, file_type: str) -> Dict[str, float]:
         result = json.loads(content)  # type: ignore
         logging.info(f"OpenAI extracted result: {result}")
         
-        potential_holdings = {
+        # Extract initial holdings
+        initial_holdings = {
             item.get("ticker", "").upper(): float(item.get("shares", 100))
             for item in result.get("holdings", []) if item.get("ticker")
         }
         
-        logging.info(f"Parsed potential holdings: {potential_holdings}")
+        logging.info(f"Initial extracted holdings: {initial_holdings}")
         
-        if not potential_holdings:
+        if not initial_holdings:
             logging.warning("No potential holdings found in AI response")
             return {}
 
-        logging.info(f"Returning extracted holdings without price validation: {potential_holdings}")
-        return potential_holdings
+        # Validate and normalize tickers
+        ticker_list = list(initial_holdings.keys())
+        ticker_mappings = validate_and_normalize_tickers(ticker_list)
+        
+        # Apply corrections and create final holdings
+        final_holdings = {}
+        corrections_made = []
+        
+        for original_ticker, shares in initial_holdings.items():
+            normalized_ticker = ticker_mappings.get(original_ticker, original_ticker)
+            
+            if normalized_ticker is None:
+                logging.warning(f"Skipping invalid ticker: {original_ticker}")
+                continue
+                
+            if normalized_ticker != original_ticker:
+                corrections_made.append(f"{original_ticker} → {normalized_ticker}")
+                logging.info(f"Ticker correction: {original_ticker} → {normalized_ticker}")
+            
+            final_holdings[normalized_ticker] = shares
+        
+        if corrections_made:
+            logging.info(f"Ticker corrections applied: {corrections_made}")
+        
+        logging.info(f"Final normalized holdings: {final_holdings}")
+        return final_holdings
         
     except Exception as e:
         logging.error(f"Error extracting portfolio with AI: {e}", exc_info=True)

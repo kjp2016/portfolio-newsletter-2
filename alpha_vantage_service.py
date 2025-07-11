@@ -43,12 +43,14 @@ class AlphaVantageService:
         self.historical_cache = {}
         self.cache_duration = 300  # 5 minutes
         
-        # Ticker normalization mapping
+        # Ticker normalization mapping for Alpha Vantage API
         self.ticker_mapping = {
-            # Berkshire Hathaway variations - try both formats
-            'BRKB': 'BRK.B',
-            'BRKA': 'BRK.A',
-            'BRK': 'BRK.B',  # Default to B shares
+            # Berkshire Hathaway variations - Alpha Vantage uses hyphens, not dots
+            'BRKB': 'BRK-B',
+            'BRKA': 'BRK-A',
+            'BRK': 'BRK-B',  # Default to B shares
+            'BRK.B': 'BRK-B',  # Convert dots to hyphens
+            'BRK.A': 'BRK-A',  # Convert dots to hyphens
             
             # Google variations
             'GOOG': 'GOOGL',
