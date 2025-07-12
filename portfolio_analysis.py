@@ -57,14 +57,24 @@ def build_prompt_for_holding(price_block: dict, long_name: str) -> str:
     logging.info(f"[DEBUG] Building prompt for {price_block['ticker']}: pct_change={price_block['pct_change']:.2f}%, abs_change=${price_block['abs_change']:.2f}")
     
     return (
-        f"Create a bullet-point analysis for a client newsletter about {long_name} ({price_block['ticker']}).\n"
-        f"The stock is {direction} ${abs(price_block['abs_change'])} ({price_block['pct_change']:.2f}%) for the {period_desc}.\n\n"
+        f"Create a bullet-point analysis for a client newsletter about {long_name} ({price_block['ticker']}).\n\n"
+        f"**IMPORTANT: USE ONLY THE PROVIDED PRICE DATA BELOW - DO NOT SEARCH FOR OR USE OTHER PRICE INFORMATION**\n\n"
+        f"CONFIRMED PRICE DATA FROM ALPHA VANTAGE:\n"
+        f"- Stock: {long_name} ({price_block['ticker']})\n"
+        f"- Period: {period_desc}\n"
+        f"- Price Change: {direction} ${abs(price_block['abs_change']):.2f}\n"
+        f"- Percentage Change: {price_block['pct_change']:.2f}%\n"
+        f"- Start Price: ${price_block.get('first_close', 'N/A')}\n"
+        f"- End Price: ${price_block.get('last_close', 'N/A')}\n\n"
         f"Format your response as exactly 4 bullet points using this structure:\n"
-        f"• **Performance**: [One sentence about the price movement and percentage change]\n"
+        f"• **Performance**: [One sentence about the price movement using ONLY the provided data above]\n"
         f"• **Key Driver**: [Main factor or news that influenced this performance, with cited source]\n"
         f"• **Additional Context**: [Secondary factor, analyst opinion, or sector trend, with cited source]\n"
         f"• **Outlook**: [Brief forward-looking sentiment or upcoming catalyst]\n\n"
-        f"Requirements:\n- Use **credible, cited news sources** found via web search\n"
+        f"CRITICAL REQUIREMENTS:\n"
+        f"- Use ONLY the price data provided above - do NOT search for or use any other price information\n"
+        f"- Use web search ONLY to find news, analyst opinions, and market context that explains the price movement\n"
+        f"- Use **credible, cited news sources** found via web search for news and context\n"
         f"- Include inline URL citations (e.g., [Source URL]) for any news mentioned\n"
         f"- Keep each bullet point to 1-2 sentences maximum\n"
         f"- Use clear, professional language without jargon\n"
@@ -106,6 +116,26 @@ def gpt_paragraph_for_holding(price_block: dict, long_name: str, openai_client: 
             
             if not has_bullets or not (has_performance and has_key_driver and has_additional_context and has_outlook):
                 raise ValueError("Response does not contain expected bullet-point format")
+            
+            # Validate that the AI is using the correct price data
+            expected_pct = price_block['pct_change']
+            expected_direction = "up" if expected_pct >= 0 else "down"
+            
+            # Check if the response mentions the correct percentage change (within 0.1% tolerance)
+            pct_pattern = r'(\d+\.?\d*)%'
+            pct_matches = re.findall(pct_pattern, analysis)
+            
+            if pct_matches:
+                found_pct = float(pct_matches[0])
+                if abs(found_pct - expected_pct) > 0.1:
+                    logging.warning(f"[GPT - {price_block['ticker']}] AI used wrong percentage: expected {expected_pct:.2f}%, found {found_pct:.2f}%")
+                    # Don't fail, but log the discrepancy
+            
+            # Check if the response mentions the correct direction
+            if expected_direction == "up" and "down" in analysis.lower():
+                logging.warning(f"[GPT - {price_block['ticker']}] AI mentioned 'down' when stock went up {expected_pct:.2f}%")
+            elif expected_direction == "down" and "up" in analysis.lower():
+                logging.warning(f"[GPT - {price_block['ticker']}] AI mentioned 'up' when stock went down {expected_pct:.2f}%")
             
             logging.info(f"[GPT - {price_block['ticker']}] Successfully generated analysis (attempt {attempt + 1})")
             return analysis
