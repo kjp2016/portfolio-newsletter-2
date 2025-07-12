@@ -105,35 +105,36 @@ def validate_and_normalize_tickers(tickers: List[str]) -> Dict[str, str]:
         return {}
     
     prompt = f"""
-    You are a financial data expert specializing in stock ticker validation and normalization for the Alpha Vantage API.
+    You are a financial data expert specializing in stock ticker format normalization for the Alpha Vantage API.
 
-    I have the following stock tickers that need to be validated and normalized for Alpha Vantage:
+    I have the following stock tickers that need to be checked for Alpha Vantage format compatibility:
     {tickers}
 
-    IMPORTANT ALPHA VANTAGE RULES:
+    IMPORTANT: Assume ALL tickers are valid. Only make format changes if you know for certain that Alpha Vantage requires a different format.
+
+    ALPHA VANTAGE FORMAT RULES:
     1. Alpha Vantage does NOT support dots (.) in ticker symbols
     2. For tickers with dots, use hyphens (-) instead (e.g., BRK.B → BRK-B)
-    3. Some tickers may need to be corrected to their proper symbols
-    4. Convert all tickers to uppercase
-    5. Remove any extra spaces or special characters
+    3. Convert all tickers to uppercase
+    4. Remove any extra spaces or special characters
 
-    COMMON CORRECTIONS:
-    - BRKB → BRK-B (Berkshire Hathaway Class B)
-    - BRKA → BRK-A (Berkshire Hathaway Class A)
-    - GOOGL → GOOGL (Alphabet Inc.)
-    - GOOG → GOOG (Alphabet Inc. Class C)
+    KNOWN FORMAT CORRECTIONS (only these specific cases):
+    - BRKB → BRK-B (Berkshire Hathaway Class B - Alpha Vantage uses BRK-B)
+    - BRKA → BRK-A (Berkshire Hathaway Class A - Alpha Vantage uses BRK-A)
+    - BRK.B → BRK-B (convert dots to hyphens)
+    - BRK.A → BRK-A (convert dots to hyphens)
 
-    For each ticker, determine:
-    1. Is it a valid stock ticker?
-    2. What is the correct Alpha Vantage format?
-    3. If the ticker is invalid or unknown, mark it as such
+    VALIDATION POLICY:
+    - Trust that all tickers are valid
+    - Only make corrections for known format issues
+    - Do NOT mark any ticker as invalid
+    - Leave tickers unchanged unless you know they need format correction
 
     Return ONLY a JSON object with this exact format:
     {{
         "ticker_mappings": {{
-            "ORIGINAL_TICKER": "NORMALIZED_TICKER",
             "BRKB": "BRK-B",
-            "INVALID_TICKER": null
+            "BRKA": "BRK-A"
         }},
         "corrections": [
             {{
@@ -144,7 +145,7 @@ def validate_and_normalize_tickers(tickers: List[str]) -> Dict[str, str]:
         ]
     }}
 
-    Only include tickers that need correction or are invalid. If a ticker is already correct, don't include it in corrections.
+    Only include tickers that need known format corrections. If a ticker doesn't need correction, don't include it in the mappings.
     """
     
     try:
@@ -267,17 +268,22 @@ def extract_portfolio_with_ai(content: str, file_type: str) -> Dict[str, float]:
         corrections_made = []
         
         for original_ticker, shares in initial_holdings.items():
-            normalized_ticker = ticker_mappings.get(original_ticker, original_ticker)
+            # Get normalized ticker, default to original if not in mappings
+            if original_ticker in ticker_mappings:
+                normalized_ticker = ticker_mappings[original_ticker]
+                if normalized_ticker is None:
+                    normalized_ticker = original_ticker
+            else:
+                normalized_ticker = original_ticker
             
-            if normalized_ticker is None:
-                logging.warning(f"Skipping invalid ticker: {original_ticker}")
-                continue
-                
+            # Apply correction if different from original
             if normalized_ticker != original_ticker:
                 corrections_made.append(f"{original_ticker} → {normalized_ticker}")
                 logging.info(f"Ticker correction: {original_ticker} → {normalized_ticker}")
-            
-            final_holdings[normalized_ticker] = shares
+                final_holdings[normalized_ticker] = shares
+            else:
+                # No correction needed, use original ticker
+                final_holdings[original_ticker] = shares
         
         if corrections_made:
             logging.info(f"Ticker corrections applied: {corrections_made}")
