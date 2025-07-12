@@ -56,8 +56,29 @@ def get_overall_portfolio_performance(
     today = pd.Timestamp.utcnow()
     start_date = today - timedelta(days=7) if period == "weekly" else today.replace(month=1, day=1).normalize()
 
-    # Use existing performance data if provided, otherwise fetch new data
-    if existing_perf_data:
+    # For YTD calculations, we should NOT reuse weekly data - we need data from January 1st
+    if period == "ytd" and existing_perf_data:
+        # Check if existing data covers the YTD period
+        has_ytd_data = False
+        for ticker_data in existing_perf_data.values():
+            if 'error' not in ticker_data:
+                # Check if the data includes January 1st or earlier
+                first_date = ticker_data.get('first_date')
+                if first_date:
+                    try:
+                        first_date_obj = pd.to_datetime(first_date)
+                        if first_date_obj <= today.replace(month=1, day=1):
+                            has_ytd_data = True
+                            break
+                    except:
+                        pass
+        
+        if not has_ytd_data:
+            logging.info(f"Existing data doesn't cover YTD period, fetching new YTD data for {len(portfolio_tickers)} tickers")
+            existing_perf_data = None
+
+    # Use existing performance data if provided and appropriate, otherwise fetch new data
+    if existing_perf_data and period != "ytd":
         all_perf_data = existing_perf_data
         logging.info(f"REUSING existing performance data for {period} calculation ({len(existing_perf_data)} tickers)")
     else:
@@ -175,6 +196,10 @@ def generate_holdings_blocks(portfolio_tickers: Tuple[str, ...], existing_perf_d
     for ticker, price_data in top_5_movers:
         try:
             name = company_data.get(ticker, {}).get('company_name', ticker)
+            
+            # Add debugging to log the price data being passed to AI
+            logging.info(f"[DEBUG] Passing price data to AI for {ticker}: pct_change={price_data.get('pct_change', 'N/A')}, abs_change={price_data.get('abs_change', 'N/A')}")
+            
             para = gpt_paragraph_for_holding(price_data, name, client, OPENAI_MODEL)
             
             # Validate the analysis format
@@ -250,9 +275,9 @@ def generate_newsletter_for_user(email: str, holdings: Dict[str, float]) -> bool
     weekly_perf_data = weekly_perf.get('performance_data', {})
     logging.info(f"Step 1 complete: Got performance data for {len([k for k, v in weekly_perf_data.items() if 'error' not in v])}/{len(tickers_tuple)} tickers")
     
-    # Fetch YTD performance data (reuse weekly data if possible, otherwise fetch separately)
+    # Fetch YTD performance data separately (don't reuse weekly data for YTD)
     logging.info("Step 2: Fetching YTD performance data...")
-    ytd_perf = get_overall_portfolio_performance(tickers_tuple, "ytd", holdings, existing_perf_data=weekly_perf_data)
+    ytd_perf = get_overall_portfolio_performance(tickers_tuple, "ytd", holdings, existing_perf_data=None)
     logging.info(f"Step 2 complete: YTD calculation done")
     
     # Fetch company data once for reuse

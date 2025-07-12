@@ -52,9 +52,13 @@ def get_batch_price_performance(tickers: Tuple[str, ...], start_date: pd.Timesta
 def build_prompt_for_holding(price_block: dict, long_name: str) -> str:
     period_desc = price_block.get('period_name', 'recent performance')
     direction = "up" if price_block['pct_change'] >= 0 else "down"
+    
+    # Add debugging to ensure we're using the correct price data
+    logging.info(f"[DEBUG] Building prompt for {price_block['ticker']}: pct_change={price_block['pct_change']:.2f}%, abs_change=${price_block['abs_change']:.2f}")
+    
     return (
         f"Create a bullet-point analysis for a client newsletter about {long_name} ({price_block['ticker']}).\n"
-        f"The stock is {direction} ${abs(price_block['abs_change'])} ({price_block['pct_change']}%) for the {period_desc}.\n\n"
+        f"The stock is {direction} ${abs(price_block['abs_change'])} ({price_block['pct_change']:.2f}%) for the {period_desc}.\n\n"
         f"Format your response as exactly 4 bullet points using this structure:\n"
         f"• **Performance**: [One sentence about the price movement and percentage change]\n"
         f"• **Key Driver**: [Main factor or news that influenced this performance, with cited source]\n"
