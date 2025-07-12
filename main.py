@@ -54,20 +54,26 @@ def get_overall_portfolio_performance(
 ) -> Dict[str, Any]:
     """Calculates overall portfolio performance using batch data with failure handling."""
     today = pd.Timestamp.utcnow()
-    start_date = today - timedelta(days=7) if period == "weekly" else today.replace(month=1, day=1).normalize()
+    
+    # For YTD, use last 6 months instead of January 1st since Alpha Vantage has limited historical data
+    if period == "ytd":
+        start_date = today - timedelta(days=180)  # 6 months ago
+        logging.info(f"Using 6-month period for YTD calculation: {start_date.strftime('%Y-%m-%d')} to {today.strftime('%Y-%m-%d')}")
+    else:
+        start_date = today - timedelta(days=7)  # Weekly period
 
-    # For YTD calculations, we should NOT reuse weekly data - we need data from January 1st
+    # For YTD calculations, we should NOT reuse weekly data - we need data from the YTD period
     if period == "ytd" and existing_perf_data:
         # Check if existing data covers the YTD period
         has_ytd_data = False
         for ticker_data in existing_perf_data.values():
             if 'error' not in ticker_data:
-                # Check if the data includes January 1st or earlier
+                # Check if the data includes the YTD start date or earlier
                 first_date = ticker_data.get('first_date')
                 if first_date:
                     try:
                         first_date_obj = pd.to_datetime(first_date)
-                        if first_date_obj <= today.replace(month=1, day=1):
+                        if first_date_obj <= start_date:
                             has_ytd_data = True
                             break
                     except:
@@ -275,19 +281,13 @@ def generate_newsletter_for_user(email: str, holdings: Dict[str, float]) -> bool
     weekly_perf_data = weekly_perf.get('performance_data', {})
     logging.info(f"Step 1 complete: Got performance data for {len([k for k, v in weekly_perf_data.items() if 'error' not in v])}/{len(tickers_tuple)} tickers")
     
-    # Fetch YTD performance data separately (don't reuse weekly data for YTD)
-    logging.info("Step 2: Fetching YTD performance data...")
-    ytd_perf = get_overall_portfolio_performance(tickers_tuple, "ytd", holdings, existing_perf_data=None)
-    logging.info(f"Step 2 complete: YTD calculation done")
-    
     # Fetch company data once for reuse
-    logging.info("Step 3: Fetching company data...")
+    logging.info("Step 2: Fetching company data...")
     company_data = get_batch_stock_data(tickers_tuple)
-    logging.info(f"Step 3 complete: Got company data for {len([k for k, v in company_data.items() if v.get('current_price')])}/{len(tickers_tuple)} tickers")
+    logging.info(f"Step 2 complete: Got company data for {len([k for k, v in company_data.items() if v.get('current_price')])}/{len(tickers_tuple)} tickers")
     
     overall_weekly_change_pct = weekly_perf.get('overall_change_pct', 0.0)
     major_movers = weekly_perf.get('major_movers', [])
-    overall_ytd_change_pct = ytd_perf.get('overall_change_pct', 0.0)
     
     # Check for data quality issues
     weekly_failed_tickers = weekly_perf.get('failed_tickers', [])
@@ -303,31 +303,29 @@ def generate_newsletter_for_user(email: str, holdings: Dict[str, float]) -> bool
         return False
 
     # --- 2. Generate AI Content ---
-    logging.info("Step 4: Generating market recap...")
+    logging.info("Step 3: Generating market recap...")
     market_block_md = generate_market_recap_with_search(list(tickers_tuple))
-    logging.info("Step 4 complete: Market recap generated")
+    logging.info("Step 3 complete: Market recap generated")
     
     # Generate holdings blocks using existing data to avoid duplicate API calls
-    logging.info("Step 5: Generating holdings analysis using existing data...")
+    logging.info("Step 4: Generating holdings analysis using existing data...")
     holdings_blocks = generate_holdings_blocks(tickers_tuple, weekly_perf_data, company_data)
-    logging.info(f"Step 5 complete: Generated analysis for {len(holdings_blocks)} holdings")
+    logging.info(f"Step 4 complete: Generated analysis for {len(holdings_blocks)} holdings")
 
     # --- 3. Build Email Text ---
     weekly_direction = "increased" if overall_weekly_change_pct >= 0 else "decreased"
-    ytd_direction = "up" if overall_ytd_change_pct >= 0 else "down"
     major_movers_str = "movements in positions like " + " and ".join(major_movers) if major_movers else "key positions"
 
     intro_summary_text = (
         f"This week your portfolio {weekly_direction} by {abs(overall_weekly_change_pct):.2f}%.\n"
         f"This was influenced by {major_movers_str}.\n"
-        f"The broader market conditions and specific news affecting your holdings are detailed in the Market Recap below.\n"
-        f"Year to date, your portfolio is {ytd_direction} {abs(overall_ytd_change_pct):.2f}%."
+        f"The broader market conditions and specific news affecting your holdings are detailed in the Market Recap below."
     )
 
     intro_summary_html = markdown2.markdown(intro_summary_text.replace('\n', '<br>'))
 
     # --- 4. Render and Send Email ---
-    logging.info("Step 6: Rendering and sending email...")
+    logging.info("Step 5: Rendering and sending email...")
     html_body, txt_body = render_email(subject, intro_summary_html, intro_summary_text, market_block_md, holdings_blocks)
     send_gmail(subject, html_body, txt_body, recipients=[email])
     
