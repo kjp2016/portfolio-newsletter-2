@@ -311,18 +311,16 @@ def main():
 
     st.markdown("""
     <style>
-    /* Professional financial app styling */
     .main-header { 
         text-align: center; 
         padding: 3rem 0; 
-        background: linear-gradient(135deg, #1a365d 0%, #2d3748 50%, #1a365d 100%); 
+        background: linear-gradient(135deg, #1a365d 0%, #2d3748 100%); 
         color: white; 
         border-radius: 12px; 
         margin-bottom: 2.5rem; 
         box-shadow: 0 8px 32px rgba(0,0,0,0.15);
         border: 1px solid rgba(255,255,255,0.1);
     }
-    
     .main-header h1 {
         font-size: 2.8rem;
         font-weight: 700;
@@ -330,7 +328,6 @@ def main():
         text-shadow: 0 2px 4px rgba(0,0,0,0.3);
         letter-spacing: -0.5px;
     }
-    
     .main-header h3 {
         font-size: 1.3rem;
         font-weight: 400;
@@ -338,151 +335,14 @@ def main():
         margin: 0;
         letter-spacing: 0.5px;
     }
-    
-    .upload-section { 
-        background: linear-gradient(135deg, #ffffff 0%, #f7fafc 100%);
-        padding: 2.5rem; 
-        border-radius: 12px; 
+    .upload-section, .portfolio-display {
+        background: #fff;
+        padding: 2.5rem;
+        border-radius: 12px;
         border: 1px solid #e2e8f0;
         box-shadow: 0 4px 6px rgba(0,0,0,0.05);
         margin-bottom: 2rem;
     }
-    
-    .portfolio-display { 
-        background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
-        padding: 2rem; 
-        border-radius: 12px; 
-        box-shadow: 0 4px 15px rgba(0,0,0,0.08); 
-        margin-top: 1rem;
-        border: 1px solid #e2e8f0;
-    }
-    
-    .sidebar-section {
-        background: linear-gradient(135deg, #f8fafc 0%, #edf2f7 100%);
-        padding: 1.5rem;
-        border-radius: 10px;
-        border: 1px solid #e2e8f0;
-        margin-bottom: 1rem;
-    }
-    
-    .metric-card {
-        background: linear-gradient(135deg, #2d3748 0%, #1a365d 100%);
-        color: white;
-        padding: 1.5rem;
-        border-radius: 10px;
-        text-align: center;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    }
-    
-    .success-message {
-        background: linear-gradient(135deg, #22543d 0%, #1a4731 100%);
-        color: white;
-        padding: 1rem;
-        border-radius: 8px;
-        border-left: 4px solid #38a169;
-    }
-    
-    .info-message {
-        background: linear-gradient(135deg, #2d3748 0%, #1a365d 100%);
-        color: white;
-        padding: 1rem;
-        border-radius: 8px;
-        border-left: 4px solid #3182ce;
-    }
-    
-    .warning-message {
-        background: linear-gradient(135deg, #744210 0%, #5a2d02 100%);
-        color: white;
-        padding: 1rem;
-        border-radius: 8px;
-        border-left: 4px solid #d69e2e;
-    }
-    
-    .error-message {
-        background: linear-gradient(135deg, #742a2a 0%, #5a1a1a 100%);
-        color: white;
-        padding: 1rem;
-        border-radius: 8px;
-        border-left: 4px solid #e53e3e;
-    }
-    
-    /* Professional button styling */
-    .stButton > button {
-        background: linear-gradient(135deg, #2d3748 0%, #1a365d 100%);
-        color: white;
-        border: none;
-        border-radius: 8px;
-        padding: 0.75rem 1.5rem;
-        font-weight: 600;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        transition: all 0.3s ease;
-        letter-spacing: 0.5px;
-    }
-    
-    .stButton > button:hover {
-        background: linear-gradient(135deg, #1a365d 0%, #0f2027 100%);
-        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-        transform: translateY(-1px);
-    }
-    
-    /* File uploader styling */
-    .stFileUploader > div {
-        border: 2px dashed #cbd5e1;
-        border-radius: 10px;
-        padding: 2rem;
-        text-align: center;
-        background: rgba(248, 250, 252, 0.5);
-        transition: all 0.3s ease;
-    }
-    
-    .stFileUploader > div:hover {
-        border-color: #2d3748;
-        background: rgba(45, 55, 72, 0.05);
-    }
-    
-    /* Progress bar styling */
-    .stProgress > div > div > div {
-        background: linear-gradient(90deg, #2d3748 0%, #1a365d 100%);
-    }
-    
-    /* Dataframe styling */
-    .dataframe {
-        border-radius: 8px;
-        overflow: hidden;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    
-    /* Hide Streamlit default elements */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    
-    /* Custom scrollbar */
-    ::-webkit-scrollbar {
-        width: 8px;
-    }
-    
-    ::-webkit-scrollbar-track {
-        background: #f1f5f9;
-        border-radius: 4px;
-    }
-    
-    ::-webkit-scrollbar-thumb {
-        background: #cbd5e1;
-        border-radius: 4px;
-    }
-    
-    ::-webkit-scrollbar-thumb:hover {
-        background: #94a3b8;
-    }
-    
-    /* Professional text styling */
-    .professional-text {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        line-height: 1.6;
-        color: #2d3748;
-    }
-    
     .section-title {
         font-size: 1.5rem;
         font-weight: 600;
@@ -495,57 +355,20 @@ def main():
     """, unsafe_allow_html=True)
 
     st.markdown('<div class="main-header"><h1>Stephen Financial</h1><h3>Professional Portfolio Management System</h3></div>', unsafe_allow_html=True)
-    
-    # Contact Advisor button at the top
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        if st.button("Contact Financial Advisor", use_container_width=True, type="primary", key="contact_advisor_top"):
-            st.info("Email: keanejpalmer@gmail.com")
-            st.info("Phone: (555) 123-4567")
-    
+
+    # Contact Advisor button at the top (centered)
+    st.markdown("<div style='display: flex; justify-content: center; margin-bottom: 2rem;'><button style='background: linear-gradient(135deg, #1a365d 0%, #2d3748 100%); color: white; border: none; border-radius: 8px; padding: 0.75rem 2rem; font-weight: 600; font-size: 1rem; cursor: pointer;' onclick=\"window.location.href='mailto:keanejpalmer@gmail.com'\">Contact Financial Advisor</button></div>", unsafe_allow_html=True)
+
     st.markdown("---")
 
-    # Sidebar for admin functions
-    with st.sidebar:
-        st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
-        st.header("Administration")
-        if st.button("Send All Newsletters", use_container_width=True, key="send_all_newsletters"):
-            users = get_all_users_from_sheets()
-            if users:
-                with st.spinner(f"Sending newsletters to {len(users)} users..."):
-                    success_count = 0
-                    for user in users:
-                        if user.get('holdings'):
-                            if generate_newsletter_for_user(user['email'], user['holdings']):
-                                success_count += 1
-                    st.success(f"Successfully sent {success_count} newsletters")
-            else:
-                st.warning("No users found in database")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
-        st.subheader("Registered Users")
-        users = get_all_users_from_sheets()
-        if users:
-            for user in users:
-                with st.expander(f"{user['email']}"):
-                    st.write(f"**Last Updated:** {user.get('last_updated', 'N/A')}")
-                    st.write("**Holdings:**", user.get('holdings', {}))
-        else:
-            st.info("No users registered yet")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # Main content
-    col1, col2 = st.columns([1, 1])
+    # Main content: two columns for upload and overview
+    col1, col2 = st.columns([1, 1], gap="large")
 
     with col1:
         st.markdown('<div class="upload-section">', unsafe_allow_html=True)
         st.markdown('<div class="section-title">Portfolio Upload</div>', unsafe_allow_html=True)
         st.markdown("Upload your portfolio document to receive personalized financial newsletters with market analysis and performance insights.")
-        
         email = st.text_input("Email Address", placeholder="you@example.com")
-        
-        # File uploader with better feedback
         uploaded_file = st.file_uploader(
             "Upload Portfolio Document (PDF, DOCX, XLSX, CSV)",
             type=['pdf', 'docx', 'xlsx', 'xls', 'csv'],
@@ -553,112 +376,74 @@ def main():
             accept_multiple_files=False,
             key="portfolio_uploader"
         )
-        
-        # Show file upload status with error handling
         if uploaded_file is not None:
             try:
                 st.success(f"File uploaded: {uploaded_file.name}")
                 st.info(f"File size: {uploaded_file.size} bytes")
                 st.info(f"File type: {uploaded_file.type}")
-                
-                # Test file reading
                 try:
                     file_bytes = uploaded_file.read()
                     st.info(f"File read successfully: {len(file_bytes)} bytes")
-                    # Reset file pointer for later use
                     uploaded_file.seek(0)
                 except Exception as e:
                     st.error(f"Error reading file: {e}")
                     st.error("This might be a file permission or format issue.")
-                
             except Exception as e:
                 st.error(f"Error processing uploaded file: {e}")
                 st.error("Please try uploading a different file or check file permissions.")
         else:
             st.info("Please select a file to upload")
-        
-        # Portfolio processing logic
         if uploaded_file and email:
             if st.button("Process Portfolio", type="primary", key="process_portfolio"):
                 try:
-                    # Create a progress container
-                    progress_container = st.container()
-                    status_container = st.container()
-                    
-                    with progress_container:
-                        progress_bar = st.progress(0)
-                        status_text = st.empty()
-                    
-                    with status_container:
-                        log_container = st.container()
-                        
-                        def update_progress(step, total_steps, message):
-                            progress = step / total_steps
-                            progress_bar.progress(progress)
-                            status_text.text(f"Step {step}/{total_steps}: {message}")
-                            with log_container:
-                                st.info(f"Processing: {message}")
-                    
-                    # Step 1: File Processing
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    def update_progress(step, total_steps, message):
+                        progress = step / total_steps
+                        progress_bar.progress(progress)
+                        status_text.text(f"Step {step}/{total_steps}: {message}")
                     update_progress(1, 4, "Reading uploaded file...")
-                    
                     try:
                         file_bytes = uploaded_file.read()
                         file_type = uploaded_file.name.split('.')[-1].lower()
-                        with log_container:
-                            st.info(f"File: {uploaded_file.name} ({uploaded_file.size} bytes)")
-                            st.info(f"Type: {file_type}")
-                            st.info(f"Bytes read: {len(file_bytes)}")
+                        st.info(f"File: {uploaded_file.name} ({uploaded_file.size} bytes)")
+                        st.info(f"Type: {file_type}")
+                        st.info(f"Bytes read: {len(file_bytes)}")
                     except Exception as e:
                         st.error(f"Error reading file: {e}")
                         logging.error(f"File read error: {e}", exc_info=True)
                         return
-                    
-                    # Step 2: Content Extraction
                     update_progress(2, 4, "Extracting content from file...")
                     content = ""
                     if file_type == 'pdf':
                         content = extract_text_from_pdf(file_bytes)
-                        with log_container:
-                            st.info(f"PDF content extracted: {len(content)} characters")
+                        st.info(f"PDF content extracted: {len(content)} characters")
                     elif file_type == 'docx':
                         content = extract_text_from_docx(file_bytes)
-                        with log_container:
-                            st.info(f"DOCX content extracted: {len(content)} characters")
+                        st.info(f"DOCX content extracted: {len(content)} characters")
                     elif file_type == 'csv':
-                        # Handle CSV files directly
                         df = pd.read_csv(BytesIO(file_bytes))
                         content = df.to_string()
-                        with log_container:
-                            st.info(f"CSV data extracted: {df.shape[0]} rows, {df.shape[1]} columns")
-                            st.info(f"Content length: {len(content)} characters")
+                        st.info(f"CSV data extracted: {df.shape[0]} rows, {df.shape[1]} columns")
+                        st.info(f"Content length: {len(content)} characters")
                     elif file_type in ['xlsx', 'xls']:
                         df = extract_data_from_excel(file_bytes)
                         content = df.to_string()
-                        with log_container:
-                            st.info(f"Excel data extracted: {df.shape[0]} rows, {df.shape[1]} columns")
-                            st.info(f"Content length: {len(content)} characters")
-
+                        st.info(f"Excel data extracted: {df.shape[0]} rows, {df.shape[1]} columns")
+                        st.info(f"Content length: {len(content)} characters")
                     if not content:
                         st.error("Could not read content from the uploaded file.")
                         st.error("Please check that the file contains readable data.")
                         return
-                    
-                    # Step 3: Portfolio Analysis
                     update_progress(3, 4, "Analyzing portfolio data...")
-                    with log_container:
-                        st.info("Processing portfolio information...")
-                    
+                    st.info("Processing portfolio information...")
                     holdings = extract_portfolio_with_ai(content, file_type)
-                    
-                    with log_container:
-                        if holdings:
-                            st.success(f"Analysis complete! Found {len(holdings)} holdings:")
-                            for ticker, shares in holdings.items():
-                                st.info(f"   • {ticker}: {shares} shares")
-                        else:
-                            st.warning("Analysis found no valid holdings")
-                    
+                    if holdings:
+                        st.success(f"Analysis complete! Found {len(holdings)} holdings:")
+                        for ticker, shares in holdings.items():
+                            st.info(f"   • {ticker}: {shares} shares")
+                    else:
+                        st.warning("Analysis found no valid holdings")
                     if not holdings:
                         st.error("Could not extract any valid stock holdings from the document.")
                         st.info("This might be because:")
@@ -666,34 +451,21 @@ def main():
                         st.info("   • The tickers found were not valid")
                         st.info("   • The document format is not supported")
                         return
-                    
-                    # Step 4: Database Save
                     update_progress(4, 4, "Saving portfolio to database...")
-                    with log_container:
-                        st.info("Saving portfolio data to database...")
-                    
+                    st.info("Saving portfolio data to database...")
                     if save_user_portfolio_to_sheets(email, holdings):
-                        # Complete
                         update_progress(4, 4, "Portfolio processing complete!")
-                        with log_container:
-                            st.success("Portfolio saved successfully!")
-                        
-                        # Store in session state and refresh
+                        st.success("Portfolio saved successfully!")
                         st.session_state['current_holdings'] = holdings
                         st.session_state['current_email'] = email
-                        
-                        # Show success message
                         st.success("Portfolio processed and saved successfully!")
                         st.info("You can now view your portfolio on the right side and send a test newsletter.")
-                        
-                        # Auto-refresh after a short delay
                         import time
                         time.sleep(2)
                         st.rerun()
                     else:
                         st.error("Failed to save portfolio to database.")
                         st.error("Please check the terminal logs for detailed error information.")
-                        
                 except Exception as e:
                     st.error(f"An error occurred during processing: {str(e)}")
                     st.error("Please check the terminal for detailed error logs.")
@@ -707,21 +479,13 @@ def main():
             email = st.session_state.get('current_email', '')
             st.markdown('<div class="portfolio-display">', unsafe_allow_html=True)
             st.subheader(f"Portfolio for: {email}")
-
             ticker_list = tuple(holdings.keys())
             if ticker_list:
-                # Show basic holdings without prices
                 portfolio_data = []
                 for ticker, shares in holdings.items():
-                    portfolio_data.append({
-                        'Ticker': ticker,
-                        'Shares': shares
-                    })
-                
+                    portfolio_data.append({'Ticker': ticker, 'Shares': shares})
                 df = pd.DataFrame(portfolio_data)
                 st.dataframe(df, use_container_width=True)
-                
-                # Add button to load current prices if user wants to see portfolio value
                 if st.button("Load Current Prices", use_container_width=True, key="load_prices"):
                     with st.spinner("Fetching current prices..."):
                         portfolio_details = get_batch_stock_data(ticker_list)
@@ -740,25 +504,20 @@ def main():
                                     'Current Price': f"${current_price:.2f}",
                                     'Value': f"${value:,.2f}"
                                 })
-                        
                         if portfolio_data_with_prices:
                             df_with_prices = pd.DataFrame(portfolio_data_with_prices)
                             st.dataframe(df_with_prices, use_container_width=True)
-                            
-                            # Enhanced total value display
                             st.markdown('<div class="metric-card">', unsafe_allow_html=True)
                             st.metric("Total Portfolio Value", f"${total_value:,.2f}")
                             st.markdown('</div>', unsafe_allow_html=True)
                         else:
                             st.warning("Could not fetch current prices for any holdings")
-
             if st.button("Send Test Newsletter", use_container_width=True, key="send_test_newsletter"):
                 with st.spinner(f"Generating and sending newsletter to {email}..."):
                     if generate_newsletter_for_user(email, holdings):
                         st.success(f"Newsletter sent to {email}!")
                     else:
                         st.error("Failed to send newsletter. Check logs for details.")
-            
             st.markdown('</div>', unsafe_allow_html=True)
         else:
             st.markdown('<div class="portfolio-display">', unsafe_allow_html=True)
