@@ -206,38 +206,56 @@ class OptimizedNewsletterGenerator:
         Uses a more restrictive prompt and validation.
         """
         try:
+            # Extract exact values for the prompt
+            start_price = price_data.get('first_close', 0)
+            end_price = price_data.get('last_close', 0)
+            abs_change = price_data.get('abs_change', 0)
+            pct_change = price_data.get('pct_change', 0)
+            direction = "UP" if pct_change >= 0 else "DOWN"
+            
             # Create a very explicit prompt that forces the AI to use the provided data
             prompt = f"""
 You are a financial analyst creating a brief analysis for a client newsletter.
 
-**CRITICAL: You MUST use ONLY the exact price data provided below. Do NOT search for or use any other price information.**
+**CRITICAL INSTRUCTIONS - READ CAREFULLY:**
+1. You MUST use ONLY the exact price data provided below
+2. Do NOT search for or use any other price information
+3. The percentage change is EXACTLY {pct_change:.2f}% ({direction})
+4. If the percentage is negative, the stock went DOWN
+5. If the percentage is positive, the stock went UP
+6. Return EXACTLY 4 bullet points - no more, no less
+7. Do NOT include any market data, current prices, or extra information
 
 EXACT PRICE DATA FOR {ticker} ({company_name}):
-- Start Price: ${price_data.get('first_close', 'N/A')}
-- End Price: ${price_data.get('last_close', 'N/A')}
-- Price Change: ${price_data.get('abs_change', 'N/A')}
-- Percentage Change: {price_data.get('pct_change', 'N/A')}%
+- Start Price: ${start_price:.2f}
+- End Price: ${end_price:.2f}
+- Price Change: ${abs_change:.2f}
+- Percentage Change: {pct_change:.2f}% ({direction})
 - Period: {price_data.get('period_name', 'weekly')}
 
-Create exactly 4 bullet points:
+Create EXACTLY 4 bullet points using this EXACT format (copy this structure exactly):
 
-• **Performance**: {company_name} {ticker} {price_data.get('pct_change', 0):.2f}% this week, moving from ${price_data.get('first_close', 0):.2f} to ${price_data.get('last_close', 0):.2f}.
+• **Performance**: {company_name} ({ticker}) moved {pct_change:.2f}% this week, from ${start_price:.2f} to ${end_price:.2f}.
 
-• **Key Driver**: [Use web search to find the main news/factor that explains this {price_data.get('pct_change', 0):.2f}% movement]
+• **Key Driver**: [Use web search to find the main news/factor that explains this {pct_change:.2f}% {direction.lower()} movement]
 
 • **Additional Context**: [Use web search to find secondary factors or analyst opinions about {company_name}]
 
 • **Outlook**: [Brief forward-looking sentiment based on recent developments]
 
-**REQUIREMENTS:**
-- Use EXACTLY the percentage and price data above
+**ABSOLUTE REQUIREMENTS:**
+- Use EXACTLY {pct_change:.2f}% in your analysis
 - Use web search only for news/context, not for price data
 - Keep each bullet to 1-2 sentences
 - Include source URLs for news
-- Return only the 4 bullet points, no other text
+- Return ONLY the 4 bullet points above - nothing else
+- Do NOT include any market data, current prices, or extra information
+- If {pct_change:.2f}% is negative, say the stock went DOWN
+- If {pct_change:.2f}% is positive, say the stock went UP
+- Start with "• **Performance**:" and end with "• **Outlook**:"
 """
             
-            logging.info(f"[AI] Generating analysis for {ticker} with {price_data.get('pct_change', 0):.2f}% change")
+            logging.info(f"[AI] Generating analysis for {ticker} with {pct_change:.2f}% change ({direction})")
             
             response = self.openai_client.responses.create(
                 model=self.model,
@@ -249,8 +267,42 @@ Create exactly 4 bullet points:
             if not analysis:
                 raise ValueError("Empty response from AI")
             
-            # Validate that the AI used the correct percentage
-            expected_pct = price_data.get('pct_change', 0)
+            # Validate that the response contains exactly 4 bullet points
+            bullet_points = analysis.count('•')
+            if bullet_points != 4:
+                logging.error(f"[AI] {ticker}: Expected 4 bullet points, found {bullet_points}")
+                # Try to extract only the bullet points if there are extras
+                lines = analysis.split('\n')
+                bullet_lines = [line.strip() for line in lines if line.strip().startswith('•')]
+                if len(bullet_lines) >= 4:
+                    analysis = '\n'.join(bullet_lines[:4])
+                    logging.info(f"[AI] {ticker}: Extracted first 4 bullet points")
+                else:
+                    logging.error(f"[AI] {ticker}: Cannot extract 4 bullet points from response")
+            
+            # Check for unwanted market data
+            unwanted_phrases = [
+                'Stock market information',
+                'The price is',
+                'The latest open price',
+                'The intraday',
+                'The latest trade time',
+                'currently with a change',
+                'USD currently'
+            ]
+            
+            for phrase in unwanted_phrases:
+                if phrase in analysis:
+                    logging.warning(f"[AI] {ticker}: Response contains unwanted market data: '{phrase}'")
+                    # Remove lines containing unwanted market data
+                    lines = analysis.split('\n')
+                    clean_lines = [line for line in lines if not any(unwanted in line for unwanted in unwanted_phrases)]
+                    analysis = '\n'.join(clean_lines)
+                    logging.info(f"[AI] {ticker}: Cleaned unwanted market data from response")
+                    break
+            
+            # Enhanced validation that the AI used the correct percentage
+            expected_pct = pct_change
             pct_pattern = r'(\d+\.?\d*)%'
             pct_matches = re.findall(pct_pattern, analysis)
             
@@ -262,12 +314,27 @@ Create exactly 4 bullet points:
                     analysis = analysis.replace(f"{found_pct:.2f}%", f"{expected_pct:.2f}%")
                     logging.info(f"[AI] {ticker}: Corrected percentage in analysis")
             
-            # Validate direction
+            # Enhanced direction validation
             expected_direction = "up" if expected_pct >= 0 else "down"
-            if expected_direction == "up" and "down" in analysis.lower() and "up" not in analysis.lower():
-                logging.error(f"[AI] {ticker}: AI said 'down' when stock went up {expected_pct:.2f}%")
-            elif expected_direction == "down" and "up" in analysis.lower() and "down" not in analysis.lower():
-                logging.error(f"[AI] {ticker}: AI said 'up' when stock went down {expected_pct:.2f}%")
+            analysis_lower = analysis.lower()
+            
+            # Check for direction mismatches
+            if expected_direction == "up":
+                if "down" in analysis_lower and "up" not in analysis_lower:
+                    logging.error(f"[AI] {ticker}: AI said 'down' when stock went up {expected_pct:.2f}%")
+                    # Try to fix the direction
+                    analysis = analysis.replace("down", "up").replace("DOWN", "UP").replace("Down", "Up")
+                    logging.info(f"[AI] {ticker}: Corrected direction in analysis")
+            elif expected_direction == "down":
+                if "up" in analysis_lower and "down" not in analysis_lower:
+                    logging.error(f"[AI] {ticker}: AI said 'up' when stock went down {expected_pct:.2f}%")
+                    # Try to fix the direction
+                    analysis = analysis.replace("up", "down").replace("UP", "DOWN").replace("Up", "Down")
+                    logging.info(f"[AI] {ticker}: Corrected direction in analysis")
+            
+            # Final validation - ensure the correct percentage appears in the analysis
+            if f"{expected_pct:.2f}%" not in analysis:
+                logging.warning(f"[AI] {ticker}: Correct percentage {expected_pct:.2f}% not found in analysis")
             
             logging.info(f"[AI] {ticker}: Analysis generated successfully")
             return analysis
