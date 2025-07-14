@@ -393,83 +393,89 @@ def main():
                 st.error("Please try uploading a different file or check file permissions.")
         else:
             st.info("Please select a file to upload")
-        if uploaded_file and email:
-            if st.button("Process Portfolio", type="primary", key="process_portfolio"):
+
+        # Always show the button, but disable it if inputs are missing
+        button_disabled = not (uploaded_file and email)
+        process_clicked = st.button("Process Portfolio", type="primary", key="process_portfolio", disabled=button_disabled)
+        if button_disabled:
+            st.info("Please upload a file and enter your email to enable processing.")
+
+        if process_clicked and uploaded_file and email:
+            try:
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                def update_progress(step, total_steps, message):
+                    progress = step / total_steps
+                    progress_bar.progress(progress)
+                    status_text.text(f"Step {step}/{total_steps}: {message}")
+                update_progress(1, 4, "Reading uploaded file...")
                 try:
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    def update_progress(step, total_steps, message):
-                        progress = step / total_steps
-                        progress_bar.progress(progress)
-                        status_text.text(f"Step {step}/{total_steps}: {message}")
-                    update_progress(1, 4, "Reading uploaded file...")
-                    try:
-                        file_bytes = uploaded_file.read()
-                        file_type = uploaded_file.name.split('.')[-1].lower()
-                        st.info(f"File: {uploaded_file.name} ({uploaded_file.size} bytes)")
-                        st.info(f"Type: {file_type}")
-                        st.info(f"Bytes read: {len(file_bytes)}")
-                    except Exception as e:
-                        st.error(f"Error reading file: {e}")
-                        logging.error(f"File read error: {e}", exc_info=True)
-                        return
-                    update_progress(2, 4, "Extracting content from file...")
-                    content = ""
-                    if file_type == 'pdf':
-                        content = extract_text_from_pdf(file_bytes)
-                        st.info(f"PDF content extracted: {len(content)} characters")
-                    elif file_type == 'docx':
-                        content = extract_text_from_docx(file_bytes)
-                        st.info(f"DOCX content extracted: {len(content)} characters")
-                    elif file_type == 'csv':
-                        df = pd.read_csv(BytesIO(file_bytes))
-                        content = df.to_string()
-                        st.info(f"CSV data extracted: {df.shape[0]} rows, {df.shape[1]} columns")
-                        st.info(f"Content length: {len(content)} characters")
-                    elif file_type in ['xlsx', 'xls']:
-                        df = extract_data_from_excel(file_bytes)
-                        content = df.to_string()
-                        st.info(f"Excel data extracted: {df.shape[0]} rows, {df.shape[1]} columns")
-                        st.info(f"Content length: {len(content)} characters")
-                    if not content:
-                        st.error("Could not read content from the uploaded file.")
-                        st.error("Please check that the file contains readable data.")
-                        return
-                    update_progress(3, 4, "Analyzing portfolio data...")
-                    st.info("Processing portfolio information...")
-                    holdings = extract_portfolio_with_ai(content, file_type)
-                    if holdings:
-                        st.success(f"Analysis complete! Found {len(holdings)} holdings:")
-                        for ticker, shares in holdings.items():
-                            st.info(f"   • {ticker}: {shares} shares")
-                    else:
-                        st.warning("Analysis found no valid holdings")
-                    if not holdings:
-                        st.error("Could not extract any valid stock holdings from the document.")
-                        st.info("This might be because:")
-                        st.info("   • No stock tickers were found in the document")
-                        st.info("   • The tickers found were not valid")
-                        st.info("   • The document format is not supported")
-                        return
-                    update_progress(4, 4, "Saving portfolio to database...")
-                    st.info("Saving portfolio data to database...")
-                    if save_user_portfolio_to_sheets(email, holdings):
-                        update_progress(4, 4, "Portfolio processing complete!")
-                        st.success("Portfolio saved successfully!")
-                        st.session_state['current_holdings'] = holdings
-                        st.session_state['current_email'] = email
-                        st.success("Portfolio processed and saved successfully!")
-                        st.info("You can now view your portfolio on the right side and send a test newsletter.")
-                        import time
-                        time.sleep(2)
-                        st.rerun()
-                    else:
-                        st.error("Failed to save portfolio to database.")
-                        st.error("Please check the terminal logs for detailed error information.")
+                    file_bytes = uploaded_file.read()
+                    file_type = uploaded_file.name.split('.')[-1].lower()
+                    st.info(f"File: {uploaded_file.name} ({uploaded_file.size} bytes)")
+                    st.info(f"Type: {file_type}")
+                    st.info(f"Bytes read: {len(file_bytes)}")
                 except Exception as e:
-                    st.error(f"An error occurred during processing: {str(e)}")
-                    st.error("Please check the terminal for detailed error logs.")
-                    logging.error(f"Portfolio processing error: {e}", exc_info=True)
+                    st.error(f"Error reading file: {e}")
+                    logging.error(f"File read error: {e}", exc_info=True)
+                    return
+                update_progress(2, 4, "Extracting content from file...")
+                content = ""
+                if file_type == 'pdf':
+                    content = extract_text_from_pdf(file_bytes)
+                    st.info(f"PDF content extracted: {len(content)} characters")
+                elif file_type == 'docx':
+                    content = extract_text_from_docx(file_bytes)
+                    st.info(f"DOCX content extracted: {len(content)} characters")
+                elif file_type == 'csv':
+                    df = pd.read_csv(BytesIO(file_bytes))
+                    content = df.to_string()
+                    st.info(f"CSV data extracted: {df.shape[0]} rows, {df.shape[1]} columns")
+                    st.info(f"Content length: {len(content)} characters")
+                elif file_type in ['xlsx', 'xls']:
+                    df = extract_data_from_excel(file_bytes)
+                    content = df.to_string()
+                    st.info(f"Excel data extracted: {df.shape[0]} rows, {df.shape[1]} columns")
+                    st.info(f"Content length: {len(content)} characters")
+                if not content:
+                    st.error("Could not read content from the uploaded file.")
+                    st.error("Please check that the file contains readable data.")
+                    return
+                update_progress(3, 4, "Analyzing portfolio data...")
+                st.info("Processing portfolio information...")
+                holdings = extract_portfolio_with_ai(content, file_type)
+                if holdings:
+                    st.success(f"Analysis complete! Found {len(holdings)} holdings:")
+                    for ticker, shares in holdings.items():
+                        st.info(f"   • {ticker}: {shares} shares")
+                else:
+                    st.warning("Analysis found no valid holdings")
+                if not holdings:
+                    st.error("Could not extract any valid stock holdings from the document.")
+                    st.info("This might be because:")
+                    st.info("   • No stock tickers were found in the document")
+                    st.info("   • The tickers found were not valid")
+                    st.info("   • The document format is not supported")
+                    return
+                update_progress(4, 4, "Saving portfolio to database...")
+                st.info("Saving portfolio data to database...")
+                if save_user_portfolio_to_sheets(email, holdings):
+                    update_progress(4, 4, "Portfolio processing complete!")
+                    st.success("Portfolio saved successfully!")
+                    st.session_state['current_holdings'] = holdings
+                    st.session_state['current_email'] = email
+                    st.success("Portfolio processed and saved successfully!")
+                    st.info("You can now view your portfolio on the right side and send a test newsletter.")
+                    import time
+                    time.sleep(2)
+                    st.rerun()
+                else:
+                    st.error("Failed to save portfolio to database.")
+                    st.error("Please check the terminal logs for detailed error information.")
+            except Exception as e:
+                st.error(f"An error occurred during processing: {str(e)}")
+                st.error("Please check the terminal for detailed error logs.")
+                logging.error(f"Portfolio processing error: {e}", exc_info=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col2:
