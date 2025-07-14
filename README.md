@@ -1,4 +1,4 @@
-# 📈 Stephen Financial - Portfolio Newsletter Service
+# 📈 Wall Street Weekly - Portfolio Newsletter Service
 
 A professional portfolio newsletter service that automatically generates personalized market analysis and performance reports for your investment portfolio.
 

@@ -1,4 +1,4 @@
-# Stock Portfolio Newsletter - API Integration Solution
+# Wall Street Weekly - API Integration Solution
 
 ## Problem Analysis
 

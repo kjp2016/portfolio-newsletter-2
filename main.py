@@ -392,7 +392,7 @@ def generate_newsletter_for_user(email: str, holdings: Dict[str, float]) -> bool
         return False
 
     tickers_tuple = tuple(holdings.keys())
-    subject = f"Your Weekly Portfolio Pulse – {datetime.utcnow():%b %d, %Y}"
+    subject = f"Wall Street Weekly – {datetime.utcnow():%b %d, %Y}"
 
     # Initialize optimized generator
     generator = OptimizedNewsletterGenerator()

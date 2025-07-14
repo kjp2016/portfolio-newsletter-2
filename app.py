@@ -297,7 +297,7 @@ def extract_portfolio_with_ai(content: str, file_type: str) -> Dict[str, float]:
 # ---------- Streamlit UI ----------
 def main():
     st.set_page_config(
-        page_title="Stephen Financial - Portfolio Management",
+        page_title="Wall Street Weekly - Portfolio Management",
         page_icon="💼",
         layout="wide"
     )
@@ -354,7 +354,7 @@ def main():
     </style>
     """, unsafe_allow_html=True)
 
-    st.markdown('<div class="main-header"><h1>Stephen Financial</h1><h3>Professional Portfolio Management System</h3></div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header"><h1>Wall Street Weekly</h1><h3>Professional Portfolio Management System</h3></div>', unsafe_allow_html=True)
 
     # Contact Advisor button at the top (centered)
     st.markdown("<div style='display: flex; justify-content: center; margin-bottom: 2rem;'><button style='background: linear-gradient(135deg, #1a365d 0%, #2d3748 100%); color: white; border: none; border-radius: 8px; padding: 0.75rem 2rem; font-weight: 600; font-size: 1rem; cursor: pointer;' onclick=\"window.location.href='mailto:keanejpalmer@gmail.com'\">Contact Financial Advisor</button></div>", unsafe_allow_html=True)
