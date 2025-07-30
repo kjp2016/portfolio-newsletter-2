@@ -294,6 +294,45 @@ def extract_portfolio_with_ai(content: str, file_type: str) -> Dict[str, float]:
         logging.error(f"Error extracting portfolio with AI: {e}", exc_info=True)
         return {}
 
+def process_single_file(file, file_type: str) -> Dict[str, float]:
+    """Process a single file and return extracted holdings."""
+    try:
+        file_bytes = file.read()
+        content = ""
+        
+        if file_type == 'pdf':
+            content = extract_text_from_pdf(file_bytes)
+        elif file_type == 'docx':
+            content = extract_text_from_docx(file_bytes)
+        elif file_type == 'csv':
+            df = pd.read_csv(BytesIO(file_bytes))
+            content = df.to_string()
+        elif file_type in ['xlsx', 'xls']:
+            df = extract_data_from_excel(file_bytes)
+            content = df.to_string()
+        
+        if not content:
+            logging.warning(f"No content extracted from {file.name}")
+            return {}
+        
+        holdings = extract_portfolio_with_ai(content, file_type)
+        return holdings
+        
+    except Exception as e:
+        logging.error(f"Error processing file {file.name}: {e}")
+        return {}
+
+def combine_holdings(holdings_list: List[Dict[str, float]]) -> Dict[str, float]:
+    """Combine multiple holdings dictionaries, summing shares for duplicate tickers."""
+    combined = {}
+    for holdings in holdings_list:
+        for ticker, shares in holdings.items():
+            if ticker in combined:
+                combined[ticker] += shares
+            else:
+                combined[ticker] = shares
+    return combined
+
 # ---------- Streamlit UI ----------
 def main():
     st.set_page_config(
@@ -367,111 +406,113 @@ def main():
     with col1:
         st.markdown('<div class="upload-section">', unsafe_allow_html=True)
         st.markdown('<div class="section-title">Portfolio Upload</div>', unsafe_allow_html=True)
-        st.markdown("Upload your portfolio document to receive personalized financial newsletters with market analysis and performance insights.")
+        st.markdown("Upload your portfolio documents to receive personalized financial newsletters with market analysis and performance insights.")
         email = st.text_input("Email Address", placeholder="you@example.com")
-        uploaded_file = st.file_uploader(
-            "Upload Portfolio Document (PDF, DOCX, XLSX, CSV)",
+        uploaded_files = st.file_uploader(
+            "Upload Portfolio Documents (PDF, DOCX, XLSX, CSV)",
             type=['pdf', 'docx', 'xlsx', 'xls', 'csv'],
-            help="Select a file containing your portfolio holdings. Supported formats: PDF, Word, Excel, CSV",
-            accept_multiple_files=False,
+            help="Select one or more files containing your portfolio holdings. Supported formats: PDF, Word, Excel, CSV",
+            accept_multiple_files=True,
             key="portfolio_uploader"
         )
-        if uploaded_file is not None:
-            try:
-                st.success(f"File uploaded: {uploaded_file.name}")
-                st.info(f"File size: {uploaded_file.size} bytes")
-                st.info(f"File type: {uploaded_file.type}")
-                try:
-                    file_bytes = uploaded_file.read()
-                    st.info(f"File read successfully: {len(file_bytes)} bytes")
-                    uploaded_file.seek(0)
-                except Exception as e:
-                    st.error(f"Error reading file: {e}")
-                    st.error("This might be a file permission or format issue.")
-            except Exception as e:
-                st.error(f"Error processing uploaded file: {e}")
-                st.error("Please try uploading a different file or check file permissions.")
+        
+        if uploaded_files:
+            st.success(f"Files uploaded: {len(uploaded_files)} file(s)")
+            for i, file in enumerate(uploaded_files):
+                st.info(f"File {i+1}: {file.name} ({file.size} bytes)")
         else:
-            st.info("Please select a file to upload")
+            st.info("Please select one or more files to upload")
 
         # Always show the button, but disable it if inputs are missing
-        button_disabled = not (uploaded_file and email)
-        process_clicked = st.button("Process Portfolio", type="primary", key="process_portfolio", disabled=button_disabled)
+        button_disabled = not (uploaded_files and email)
+        process_clicked = st.button("Process Portfolio Files", type="primary", key="process_portfolio", disabled=button_disabled)
         if button_disabled:
-            st.info("Please upload a file and enter your email to enable processing.")
+            st.info("Please upload files and enter your email to enable processing.")
 
-        if process_clicked and uploaded_file and email:
+        if process_clicked and uploaded_files and email:
             try:
                 progress_bar = st.progress(0)
                 status_text = st.empty()
+                
                 def update_progress(step, total_steps, message):
                     progress = step / total_steps
                     progress_bar.progress(progress)
                     status_text.text(f"Step {step}/{total_steps}: {message}")
-                update_progress(1, 4, "Reading uploaded file...")
-                try:
-                    file_bytes = uploaded_file.read()
-                    file_type = uploaded_file.name.split('.')[-1].lower()
-                    st.info(f"File: {uploaded_file.name} ({uploaded_file.size} bytes)")
-                    st.info(f"Type: {file_type}")
-                    st.info(f"Bytes read: {len(file_bytes)}")
-                except Exception as e:
-                    st.error(f"Error reading file: {e}")
-                    logging.error(f"File read error: {e}", exc_info=True)
-                    return
-                update_progress(2, 4, "Extracting content from file...")
-                content = ""
-                if file_type == 'pdf':
-                    content = extract_text_from_pdf(file_bytes)
-                    st.info(f"PDF content extracted: {len(content)} characters")
-                elif file_type == 'docx':
-                    content = extract_text_from_docx(file_bytes)
-                    st.info(f"DOCX content extracted: {len(content)} characters")
-                elif file_type == 'csv':
-                    df = pd.read_csv(BytesIO(file_bytes))
-                    content = df.to_string()
-                    st.info(f"CSV data extracted: {df.shape[0]} rows, {df.shape[1]} columns")
-                    st.info(f"Content length: {len(content)} characters")
-                elif file_type in ['xlsx', 'xls']:
-                    df = extract_data_from_excel(file_bytes)
-                    content = df.to_string()
-                    st.info(f"Excel data extracted: {df.shape[0]} rows, {df.shape[1]} columns")
-                    st.info(f"Content length: {len(content)} characters")
-                if not content:
-                    st.error("Could not read content from the uploaded file.")
-                    st.error("Please check that the file contains readable data.")
-                    return
-                update_progress(3, 4, "Analyzing portfolio data...")
-                st.info("Processing portfolio information...")
-                holdings = extract_portfolio_with_ai(content, file_type)
-                if holdings:
-                    st.success(f"Analysis complete! Found {len(holdings)} holdings:")
-                    for ticker, shares in holdings.items():
+                
+                # Calculate total steps: 1 for initialization + 1 per file for processing + 1 for saving
+                total_steps = 1 + len(uploaded_files) + 1
+                current_step = 0
+                
+                update_progress(current_step, total_steps, "Initializing file processing...")
+                current_step += 1
+                
+                all_holdings = []
+                file_results = []
+                
+                # Process each file individually
+                for i, file in enumerate(uploaded_files):
+                    file_type = file.name.split('.')[-1].lower()
+                    update_progress(current_step, total_steps, f"Processing file {i+1}/{len(uploaded_files)}: {file.name}")
+                    
+                    st.info(f"Processing: {file.name} ({file.size} bytes)")
+                    
+                    # Process the file
+                    file_holdings = process_single_file(file, file_type)
+                    
+                    if file_holdings:
+                        st.success(f"✓ {file.name}: Found {len(file_holdings)} holdings")
+                        for ticker, shares in file_holdings.items():
+                            st.info(f"   • {ticker}: {shares} shares")
+                        all_holdings.append(file_holdings)
+                        file_results.append({
+                            'file': file.name,
+                            'holdings': file_holdings,
+                            'status': 'success'
+                        })
+                    else:
+                        st.warning(f"⚠ {file.name}: No valid holdings found")
+                        file_results.append({
+                            'file': file.name,
+                            'holdings': {},
+                            'status': 'no_holdings'
+                        })
+                    
+                    current_step += 1
+                
+                # Combine all holdings
+                update_progress(current_step, total_steps, "Combining portfolio data...")
+                combined_holdings = combine_holdings(all_holdings)
+                
+                if combined_holdings:
+                    st.success(f"Combined portfolio: {len(combined_holdings)} unique holdings")
+                    for ticker, shares in combined_holdings.items():
                         st.info(f"   • {ticker}: {shares} shares")
                 else:
-                    st.warning("Analysis found no valid holdings")
-                if not holdings:
-                    st.error("Could not extract any valid stock holdings from the document.")
-                    st.info("This might be because:")
-                    st.info("   • No stock tickers were found in the document")
-                    st.info("   • The tickers found were not valid")
-                    st.info("   • The document format is not supported")
+                    st.error("No valid holdings found in any of the uploaded files.")
+                    st.info("Please check that your files contain valid stock portfolio data.")
                     return
-                update_progress(4, 4, "Saving portfolio to database...")
-                st.info("Saving portfolio data to database...")
-                if save_user_portfolio_to_sheets(email, holdings):
-                    update_progress(4, 4, "Portfolio processing complete!")
+                
+                current_step += 1
+                
+                # Save to Google Sheets
+                update_progress(current_step, total_steps, "Saving portfolio to database...")
+                st.info("Saving combined portfolio data to database...")
+                
+                if save_user_portfolio_to_sheets(email, combined_holdings):
+                    update_progress(current_step, total_steps, "Portfolio processing complete!")
                     st.success("Portfolio saved successfully!")
-                    st.session_state['current_holdings'] = holdings
+                    st.session_state['current_holdings'] = combined_holdings
                     st.session_state['current_email'] = email
-                    st.success("Portfolio processed and saved successfully!")
-                    st.info("You can now view your portfolio on the right side and send a test newsletter.")
+                    st.session_state['file_results'] = file_results
+                    st.success("All files processed and portfolio saved successfully!")
+                    st.info("You can now view your combined portfolio on the right side and send a test newsletter.")
                     import time
                     time.sleep(2)
                     st.rerun()
                 else:
                     st.error("Failed to save portfolio to database.")
                     st.error("Please check the terminal logs for detailed error information.")
+                    
             except Exception as e:
                 st.error(f"An error occurred during processing: {str(e)}")
                 st.error("Please check the terminal for detailed error logs.")
@@ -483,8 +524,21 @@ def main():
         if 'current_holdings' in st.session_state:
             holdings = st.session_state['current_holdings']
             email = st.session_state.get('current_email', '')
+            file_results = st.session_state.get('file_results', [])
+            
             st.markdown('<div class="portfolio-display">', unsafe_allow_html=True)
-            st.subheader(f"Portfolio for: {email}")
+            st.subheader(f"Combined Portfolio for: {email}")
+            
+            # Show file processing summary
+            if file_results:
+                st.markdown("**File Processing Summary:**")
+                for result in file_results:
+                    if result['status'] == 'success':
+                        st.success(f"✓ {result['file']}: {len(result['holdings'])} holdings")
+                    else:
+                        st.warning(f"⚠ {result['file']}: No holdings found")
+                st.markdown("---")
+            
             ticker_list = tuple(holdings.keys())
             if ticker_list:
                 portfolio_data = []
@@ -527,7 +581,7 @@ def main():
             st.markdown('</div>', unsafe_allow_html=True)
         else:
             st.markdown('<div class="portfolio-display">', unsafe_allow_html=True)
-            st.info("Upload a portfolio to see your holdings and send newsletters")
+            st.info("Upload portfolio files to see your holdings and send newsletters")
             st.markdown('</div>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
